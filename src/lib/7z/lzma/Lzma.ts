@@ -9,12 +9,12 @@
 import type { uint, uint8 } from "@fe-lib/alias.ts";
 import "@fe-lib/jslang.ts";
 import { decodeABV, encodeStr } from "@fe-lib/util/string.ts";
+import { MAX_UINT48 } from "./alias.ts";
 import { DecoderChunker, EncoderChunker } from "./chunker.ts";
-import type { LzInWindow } from "./LzInWindow.ts";
 import { LzmaDecoder } from "./LzmaDecoder.ts";
 import { LzmaEncoder } from "./LzmaEncoder.ts";
 import type { BaseStream, BufferWithCount } from "./streams.ts";
-import { _MAX_UINT48, arraycopy } from "./util.ts";
+import { arraycopy } from "./util.ts";
 /*80--------------------------------------------------------------------------*/
 
 export type Mode = {
@@ -57,7 +57,6 @@ type DecodeContext_ = {
 export class Lzma {
   readonly #encoder = new LzmaEncoder();
   readonly #decoder = new LzmaDecoder();
-  x_lzInWindow: LzInWindow | null = null;
 
   readonly #encctx: EncodeContext_;
   readonly #decctx: DecodeContext_;
@@ -81,6 +80,7 @@ export class Lzma {
     };
   }
 
+  /** @headconst @param inputStream  */
   #readByte(inputStream: BaseStream): uint8 | -1 {
     if (inputStream.pos >= inputStream.count) return -1;
 
@@ -108,12 +108,17 @@ export class Lzma {
     buf_x.buf[buf_x.count++] = b_x << 24 >> 24;
   }
 
-  #initEncode(input: BaseStream, len: uint | -1, mode: Mode): void {
-    if (len < -1) throw new Error("invalid length " + len);
+  /**
+   * @const @param input_x
+   * @const @param len_x
+   * @const @param mode_x
+   */
+  #initEncode(input_x: BaseStream, len_x: uint | -1, mode_x: Mode): void {
+    if (len_x < -1) throw new Error(`invalid length ${len_x}`);
 
-    this.#encctx.len_0 = len;
+    this.#encctx.len_0 = len_x;
 
-    this.#encoder.configure(mode);
+    this.#encoder.configure(mode_x);
     this.#encoder.setEncoderProperties();
     arraycopy(
       this.#encoder.properties,
@@ -124,28 +129,32 @@ export class Lzma {
     );
     this.#encctx.output.count += 5;
 
-    const Len = BigInt(len);
+    const Len = BigInt(len_x);
     for (let i = 0n; i < 48; i += 8n) {
       this.#writeByte(this.#encctx.output, Number((Len >> i) & 0xFFn));
     }
     for (let i = 2; i--;) this.#writeByte(this.#encctx.output, 0);
 
     this.#encoder.Init();
-    this.#encoder.needReleaseMFStream = 0;
-    this.#encoder.inStream = input;
-    this.#encoder.blockFinished = false;
-    this.#encoder.nowPos48 = 0;
+    //jjjj TOCLEANUP
+    // this.#encoder.needReleaseMFStream = false;
+    this.#encoder.inStream = input_x;
+    //jjjj TOCLEANUP
+    // this.#encoder.blockFinished = false;
+    // this.#encoder.nowPos48 = 0;
 
     this.#encoder.Create_2();
 
     this.#encoder.RangeEnc.stream = this.#encctx.output;
-    this.#encoder.fillDistancesPrices();
-    this.#encoder.fillAlignPrices();
     this.#encoder.Init_2();
 
     this.#encctx.chunker.alive = true;
   }
 
+  /**
+   * @const @param data_x
+   * @const @param mode_x
+   */
   #bytearrayEncode(data_x: Uint8Array, mode_x: Mode): void {
     const inputSize = data_x.length;
     const estimatedOutputSize = Math.max(32, Math.ceil(inputSize * 1.2));
@@ -165,6 +174,7 @@ export class Lzma {
     this.#initEncode(inputBuffer, inputSize, mode_x);
   }
 
+  /** @headconst @param input_x  */
   #initDecode(input_x: BaseStream): void {
     const prop_a: uint8[] = [];
     for (let i = 0; i < 5; ++i) {
@@ -179,11 +189,11 @@ export class Lzma {
     let hex_length = "";
     for (let i = 0; i < 8; ++i) {
       let r_: uint8 | string = this.#readByte(input_x);
-      if (r_ == -1) {
+      if (r_ === -1) {
         throw new Error("truncated input");
       }
       r_ = r_.toString(16);
-      if (r_.length == 1) r_ = "0" + r_;
+      if (r_.length === 1) r_ = "0" + r_;
       hex_length = `${r_}${hex_length}`;
     }
     /* Was the length set in the header (if it was compressed from a stream, the
@@ -194,7 +204,7 @@ export class Lzma {
       /* NOTE: If there is a problem with the decoder because of the length,
       you can always set the length to -1 (N1_longLit) which means unknown. */
       const tmp_length = parseInt(hex_length, 16);
-      this.#encctx.len_0 = tmp_length > _MAX_UINT48 ? -1 : tmp_length;
+      this.#encctx.len_0 = tmp_length > MAX_UINT48 ? -1 : tmp_length;
     }
 
     this.#decoder.RangeDec.stream = input_x;
@@ -206,9 +216,10 @@ export class Lzma {
     this.#decctx.chunker.alive = true;
   }
 
+  /** @headconst @param data_x  */
   #bytearrayDecode(data_x: Uint8Array): void {
     const inputSize = data_x.length;
-    const minBufferSize = 0x20; // 32 bytes minimum
+    const minBufferSize = 0x20;
     const estimatedOutputSize = inputSize * 2; // Estimate 2x expansion for decompression
     const initialBufferSize = Math.max(minBufferSize, estimatedOutputSize);
 
@@ -227,6 +238,10 @@ export class Lzma {
     this.#initDecode(inputBuffer);
   }
 
+  /**
+   * @headconst @param data_x
+   * @const @param mode_x
+   */
   compress(data_x: Uint8Array, mode_x: CompressionMode = 5): Uint8Array {
     const compressionMode = MODES[mode_x];
     this.#bytearrayEncode(data_x, compressionMode);
@@ -236,10 +251,15 @@ export class Lzma {
     return this.#toUint8Array(this.#encctx.output);
   }
 
+  /**
+   * @headconst @param data_x
+   * @const @param mode_x
+   */
   compressString(data_x: string, mode_x: CompressionMode = 5): Uint8Array {
     return this.compress(encodeStr(data_x), mode_x);
   }
 
+  /** @headconst @param bytearray_x  */
   decompress(bytearray_x: Uint8Array): Uint8Array {
     this.#bytearrayDecode(bytearray_x);
 
@@ -248,6 +268,7 @@ export class Lzma {
     return this.#toUint8Array(this.#decctx.output);
   }
 
+  /** @headconst @param bytearray_x  */
   decompressString(bytearray_x: Uint8Array): string {
     const decodedByteArray = this.decompress(bytearray_x);
     try {
@@ -257,5 +278,54 @@ export class Lzma {
       return String.fromCharCode(...decodedByteArray);
     }
   }
+}
+/*80--------------------------------------------------------------------------*/
+
+/**
+ * Compresses data using LZMA algorithm
+ *
+ * @headconst @param data_x Data to compress
+ * @const @param mode_x
+ * @return Compressed data
+ */
+export function compress(
+  data_x: Uint8Array,
+  mode_x: CompressionMode = 5,
+): Uint8Array {
+  return new Lzma().compress(data_x, mode_x);
+}
+
+/**
+ * Compresses data using LZMA algorithm
+ *
+ * @param data_x String to compress
+ * @param mode_x
+ * @return Compressed data
+ */
+export function compressString(
+  data_x: string,
+  mode_x: CompressionMode = 5,
+): Uint8Array {
+  return new Lzma().compressString(data_x, mode_x);
+}
+
+/**
+ * Decompresses LZMA compressed data
+ *
+ * @param data_x Compressed data
+ * @return Decompressed data
+ */
+export function decompress(data_x: Uint8Array): Uint8Array {
+  return new Lzma().decompress(data_x);
+}
+
+/**
+ * Decompresses LZMA compressed data
+ *
+ * @param data_x Compressed data
+ * @return Decompressed data
+ */
+export function decompressString(data_x: Uint8Array): string {
+  return new Lzma().decompressString(data_x);
 }
 /*80--------------------------------------------------------------------------*/

@@ -1,9 +1,10 @@
 /** 80**************************************************************************
+ * Ref. [[lzma1]/src/lzma.test.ts](https://github.com/xseman/lzma1/blob/master/src/lzma.test.ts)
+ *
  * @module lzma1/lzma_test
  * @license MIT
  ******************************************************************************/
 
-import type { uint8 } from "@fe-lib/alias.ts";
 import {
   assert,
   assertEquals,
@@ -18,55 +19,56 @@ import {
   compressString,
   decompress,
   decompressString,
-} from "./index.ts";
-import { Lzma } from "./Lzma.ts";
+  Lzma,
+} from "./Lzma.ts";
 /*80--------------------------------------------------------------------------*/
-
-function bytesToHexString_(byteArray: Uint8Array | uint8[]): string {
-  return Array
-    .from(byteArray, (byte) => ("0" + (byte & 0xFF).toString(16)).slice(-2))
-    .join(" ");
-}
-
-/**
- * @const @param str_x Hexadecimal string with space-separated byte values (e.g.,
- *    "5d 00 00 01")
- */
-function hexStringToUint8Array_(str_x: string): Uint8Array {
-  const hexPairs = str_x.split(" ");
-  const byteArray = new Uint8Array(hexPairs.length);
-
-  for (let i = 0; i < hexPairs.length; i++) {
-    byteArray[i] = parseInt(hexPairs[i], 16);
-  }
-
-  return byteArray;
-}
 
 describe("basics", () => {
   it("hello world", () => {
-    const fixtureInput = "hello world";
-    const fixtureOutput =
-      "5d 00 00 01 00 0b 00 00 00 00 00 00 00 00 34 19 49 ee 8d e9 17 89 3a 33 60 05 f7 cf 64 ff fb 78 20 00";
+    const raw = "hello world";
+    const enc_0 = /* deno-fmt-ignore */ new Uint8Array([
+0x5d,0x00,0x00,0x01,0x00,0x0b,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x34,0x19,
+0x49,0xee,0x8d,0xe9,0x17,0x89,0x3a,0x33,0x60,0x05,0xf7,0xcf,0x64,0xff,0xfb,0x78,
+0x20,0x00
+    ]);
+    const enc = compressString(raw, 1);
+    assertEquals(enc, enc_0);
 
-    const output = bytesToHexString_(compressString(fixtureInput, 1));
-    assertEquals(output, fixtureOutput);
-
-    const input = decompressString(hexStringToUint8Array_(fixtureOutput));
-    assertEquals(input, fixtureInput);
+    const dec = decompressString(enc_0);
+    assertEquals(dec, raw);
   });
 
   it("lorem ipsum", () => {
-    const fixtureInput =
+    const raw =
       "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
-    const fixtureOutput =
-      "5d 00 00 01 00 bd 01 00 00 00 00 00 00 00 26 1b ca 46 67 5a f2 77 b8 7d 86 d8 41 db 05 35 cd 83 a5 7c 12 a5 05 db 90 bd 2f 14 d3 71 72 96 a8 8a 7d 84 56 71 8d 6a 22 98 ab 9e 3d c3 55 ef cc a5 c3 dd 5b 8e bf 03 81 21 40 d6 26 91 02 45 4f 92 a1 78 bb 8a 00 af 90 2a 26 92 02 23 e5 5c b3 2d e3 e8 5c 2c fb 32 25 99 5c bc 71 f3 58 5a d3 1b 39 b4 bf 6f c7 61 36 92 14 e8 55 d3 ef 77 e0 68 fb ee 08 72 16 7e 2c ed 0a 69 78 8e 0c 1c 31 67 d5 b1 74 88 38 f5 e7 74 80 6e 7e 1e af 6d f5 32 22 17 bc da 0f a5 2f 85 48 72 02 fc b0 14 c7 16 aa ae cf 79 2a 0d 15 7f 49 1a e1 14 d4 9b 51 94 fc 9e 5d c1 1a 73 30 5c bc 65 2d d8 28 f9 09 73 cb f7 ad 4f 05 72 03 a5 6c 08 5b 36 26 fa 04 96 20 f5 4e 13 76 5f ce 4b 71 53 a7 5d 91 1b 1e 77 56 40 7e 91 de 51 72 0c 10 61 74 4b f6 6f 6e 90 6a 13 1f 99 fb 42 df 6a a8 94 52 cf 3d 77 cf 2f 21 62 cb f3 6b 5a fe fe 62 05 22 6c e8 df 9f de 8a 60 f3 7e 42 a6 24 48 d0 f3 ff 66 d3 e1 ed 4d d8 db 85 71 a3 ab c7 1b cd 67 22 b7 6b bc f2 7c 01 f0 48 a5 0c 38 9d 70 b4 e1 05 ff d6 30 7f f8";
+    const enc_0 = /* deno-fmt-ignore */ new Uint8Array([
+0x5d,0x00,0x00,0x01,0x00,0xbd,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x26,0x1b,
+0xca,0x46,0x67,0x5a,0xf2,0x77,0xb8,0x7d,0x86,0xd8,0x41,0xdb,0x05,0x35,0xcd,0x83,
+0xa5,0x7c,0x12,0xa5,0x05,0xdb,0x90,0xbd,0x2f,0x14,0xd3,0x71,0x72,0x96,0xa8,0x8a,
+0x7d,0x84,0x56,0x71,0x8d,0x6a,0x22,0x98,0xab,0x9e,0x3d,0xc3,0x55,0xef,0xcc,0xa5,
+0xc3,0xdd,0x5b,0x8e,0xbf,0x03,0x81,0x21,0x40,0xd6,0x26,0x91,0x02,0x45,0x4f,0x92,
+0xa1,0x78,0xbb,0x8a,0x00,0xaf,0x90,0x2a,0x26,0x92,0x02,0x23,0xe5,0x5c,0xb3,0x2d,
+0xe3,0xe8,0x5c,0x2c,0xfb,0x32,0x25,0x99,0x5c,0xbc,0x71,0xf3,0x58,0x5a,0xd3,0x1b,
+0x39,0xb4,0xbf,0x6f,0xc7,0x61,0x36,0x92,0x14,0xe8,0x55,0xd3,0xef,0x77,0xe0,0x68,
+0xfb,0xee,0x08,0x72,0x16,0x7e,0x2c,0xed,0x0a,0x69,0x78,0x8e,0x0c,0x1c,0x31,0x67,
+0xd5,0xb1,0x74,0x88,0x38,0xf5,0xe7,0x74,0x80,0x6e,0x7e,0x1e,0xaf,0x6d,0xf5,0x32,
+0x22,0x17,0xbc,0xda,0x0f,0xa5,0x2f,0x85,0x48,0x72,0x02,0xfc,0xb0,0x14,0xc7,0x16,
+0xaa,0xae,0xcf,0x79,0x2a,0x0d,0x15,0x7f,0x49,0x1a,0xe1,0x14,0xd4,0x9b,0x51,0x94,
+0xfc,0x9e,0x5d,0xc1,0x1a,0x73,0x30,0x5c,0xbc,0x65,0x2d,0xd8,0x28,0xf9,0x09,0x73,
+0xcb,0xf7,0xad,0x4f,0x05,0x72,0x03,0xa5,0x6c,0x08,0x5b,0x36,0x26,0xfa,0x04,0x96,
+0x20,0xf5,0x4e,0x13,0x76,0x5f,0xce,0x4b,0x71,0x53,0xa7,0x5d,0x91,0x1b,0x1e,0x77,
+0x56,0x40,0x7e,0x91,0xde,0x51,0x72,0x0c,0x10,0x61,0x74,0x4b,0xf6,0x6f,0x6e,0x90,
+0x6a,0x13,0x1f,0x99,0xfb,0x42,0xdf,0x6a,0xa8,0x94,0x52,0xcf,0x3d,0x77,0xcf,0x2f,
+0x21,0x62,0xcb,0xf3,0x6b,0x5a,0xfe,0xfe,0x62,0x05,0x22,0x6c,0xe8,0xdf,0x9f,0xde,
+0x8a,0x60,0xf3,0x7e,0x42,0xa6,0x24,0x48,0xd0,0xf3,0xff,0x66,0xd3,0xe1,0xed,0x4d,
+0xd8,0xdb,0x85,0x71,0xa3,0xab,0xc7,0x1b,0xcd,0x67,0x22,0xb7,0x6b,0xbc,0xf2,0x7c,
+0x01,0xf0,0x48,0xa5,0x0c,0x38,0x9d,0x70,0xb4,0xe1,0x05,0xff,0xd6,0x30,0x7f,0xf8
+    ]);
+    const enc = compressString(raw, 1);
+    assertEquals(enc, enc_0);
 
-    const output = bytesToHexString_(compressString(fixtureInput, 1));
-    assertEquals(output, fixtureOutput);
-
-    const input = decompressString(hexStringToUint8Array_(output));
-    assertEquals(input, fixtureInput);
+    const dec = decompressString(enc);
+    assertEquals(dec, raw);
   });
 });
 
@@ -83,12 +85,11 @@ describe("compress and decompress edge cases", () => {
     "∂j√l√c√]<",
     "S€≠Q∂zD#∑ √}√U∑8∑R\t",
     "024020000070042",
-  ].forEach((s_x) => {
-    it(s_x, () => {
-      const compressed = compressString(s_x, 5);
-      const decompressed = decompressString(compressed);
-
-      assertEquals(decompressed, s_x);
+  ].forEach((raw_x) => {
+    it(raw_x, () => {
+      const enc = compressString(raw_x, 5);
+      const dec = decompressString(enc);
+      assertEquals(dec, raw_x);
     });
   });
 });
@@ -100,81 +101,66 @@ describe("LZMA class direct usage", () => {
   });
 
   it("should compress and decompress without initializing LZMA class", () => {
-    const input = "Testing compression utilities";
-    const compressed = compressString(input);
-    const decompressed = decompressString(compressed);
-    assertEquals(decompressed, input);
+    const raw = "Testing compression utilities";
+    const enc = compressString(raw);
+    const dec = decompressString(enc);
+    assertEquals(dec, raw);
   });
 
   it("should handle all compression modes", () => {
-    const input = "Test string for all modes";
-
+    const raw = "Test string for all modes";
     /* Test all compression modes (1-9) */
     for (let mode = 1 as const; mode <= 9; mode++) {
-      const compressed = compressString(input, mode);
-      const decompressed = decompressString(compressed);
-      assertEquals(decompressed, input);
+      const enc = compressString(raw, mode);
+      const dec = decompressString(enc);
+      assertEquals(dec, raw);
     }
   });
 });
 
 describe("large data compression", () => {
   it("should handle large string input", () => {
-    const largeInput = "a".repeat(10_000);
-    const compressed = compressString(largeInput);
-    const decompressed = decompressString(compressed);
-    assertEquals(decompressed, largeInput);
+    const raw = "a".repeat(10_000);
+    /* 3_152_731 = 0x30_1b5b =
+    (0x20_0000 + 0x1000) + (0x10_09c9) + (0x80 + 274) */
+    const enc = compressString(raw);
+    const dec = decompressString(enc);
+    assertEquals(dec, raw);
   });
 
   it("should compress repeated data efficiently", () => {
-    const repeatedData = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".repeat(1000);
-    const compressed = compressString(repeatedData);
+    const raw = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".repeat(1000);
+    const enc = compressString(raw);
 
     /* Verify compression ratio is good (compressed size should be much smaller) */
-    assertLess(compressed.length, repeatedData.length / 5);
+    assertLess(enc.length, raw.length / 5);
 
-    const decompressed = decompressString(compressed);
-    assertEquals(decompressed, repeatedData);
-  });
-});
-
-describe("buffer handling", () => {
-  it("should handle Uint8Array input", () => {
-    const inputArray = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
-    const compressed = compress(inputArray);
-    const decompressed = decompress(compressed);
-
-    assertInstanceOf(decompressed, Uint8Array);
-
-    /* Convert to string for comparison */
-    const decoder = new TextDecoder();
-    const decompressedString = decoder.decode(decompressed);
-    assertEquals(decompressedString, "Hello");
+    const dec = decompressString(enc);
+    assertEquals(dec, raw);
   });
 });
 
 describe("error handling", () => {
   it("should gracefully handle very small inputs", () => {
-    const inputs = ["a", "b", "c", "1", "2", "3"];
-
-    for (const input of inputs) {
-      const compressed = compressString(input);
-      const decompressed = decompressString(compressed);
-      assertEquals(decompressed, input);
+    const raw_a = ["a", "b", "c", "1", "2", "3"];
+    for (const raw of raw_a) {
+      const enc = compressString(raw);
+      const dec = decompressString(enc);
+      assertEquals(dec, raw);
     }
   });
 
   it("should handle inputs with mixed content types", () => {
-    const input = "Text with numbers 12345 and symbols !@#$%";
-    const compressed = compressString(input);
-    const decompressed = decompressString(compressed);
-    assertEquals(decompressed, input);
+    const raw = "Text with numbers 12345 and symbols !@#$%";
+    const enc = compressString(raw);
+    const dec = decompressString(enc);
+    assertEquals(dec, raw);
   });
 });
 
 describe("complex data structures", () => {
   it("should handle JSON data", () => {
-    const jsonObject = {
+    const raw = {
       name: "Test Object",
       numbers: [1, 2, 3, 4, 5],
       nested: {
@@ -185,25 +171,25 @@ describe("complex data structures", () => {
       tags: ["compression", "test", "lzma"],
     };
 
-    const jsonString = JSON.stringify(jsonObject);
-    const compressed = compressString(jsonString);
-    const decompressed = decompressString(compressed);
+    const raw_1 = JSON.stringify(raw);
+    const enc = compressString(raw_1);
+    const dec = decompressString(enc);
 
-    assertEquals(decompressed, jsonString);
-    const parsedBack = JSON.parse(decompressed);
-    assertEquals(parsedBack, jsonObject);
+    assertEquals(dec, raw_1);
+    const dec_1 = JSON.parse(dec);
+    assertEquals(dec_1, raw);
   });
 
   it("should handle base64 encoded data", () => {
-    const originalText = "This is some text that will be base64 encoded";
-    const base64 = b64From(originalText);
+    const raw = "This is some text that will be base64 encoded";
+    const raw_1 = b64From(raw);
 
-    const compressed = compressString(base64);
-    const decompressed = decompressString(compressed);
+    const enc = compressString(raw_1);
+    const dec = decompressString(enc);
 
-    assertEquals(decompressed, base64);
-    const decoded = decodeB64(base64);
-    assertEquals(decoded, originalText);
+    assertEquals(dec, raw_1);
+    const dec_1 = decodeB64(raw_1);
+    assertEquals(dec_1, raw);
   });
 });
 
@@ -211,35 +197,23 @@ describe("edge case scenarios", () => {
   it("compressing data with many zero bytes", () => {
     /* Tests handling of sparse data with repeated zero values */
     /* Tests dictionary optimization and run-length encoding mechanisms */
-    const input = new Uint8Array(10_000);
+    const raw = new Uint8Array(10_000);
     /* Just a few non-zero values */
-    for (let i = 0; i < input.length; i += 1000) {
-      input[i] = 255;
-    }
-    const compressed = compress(input);
-    const decompressed = decompress(compressed);
-
-    /* Compare the arrays properly */
-    assertEquals(decompressed.length, input.length);
-    for (let i = 0; i < input.length; i++) {
-      assertEquals(decompressed[i], input[i]);
-    }
+    for (let i = 0; i < raw.length; i += 1000) raw[i] = 255;
+    const enc = compress(raw);
+    const dec = decompress(enc);
+    assertEquals(dec, raw);
   });
 
   it("compressing binary data with all byte values", () => {
     /* Tests byte value handling across the full range (0-255) */
     /* Ensures the encoder properly processes all possible byte values
     and correctly transforms between signed/unsigned representations */
-    const input = new Uint8Array(256);
-    for (let i = 0; i < 256; i++) {
-      input[i] = i;
-    }
-    const compressed = compress(input);
-    const decompressed = decompress(compressed);
-
-    for (let i = 0; i < 256; i++) {
-      assertEquals(decompressed[i], i);
-    }
+    const raw = new Uint8Array(256);
+    for (let i = 0; i < 256; i++) raw[i] = i;
+    const enc = compress(raw);
+    const dec = decompress(enc);
+    assertEquals(dec, raw);
   });
 });
 
@@ -248,20 +222,19 @@ describe("internal algorithm behavior", () => {
     /* Tests the match finder's ability to handle alternating patterns */
     /* Exercises the dictionary matching and LZ77 substring detection algorithms
 		by creating data with both repetitive and random sections */
-    let input = "";
+    let raw = "";
     /* Create a pattern that alternates between repetitive and random sections */
     for (let i = 0; i < 20; i++) {
       /* Add repetitive section */
-      input += "ABCDEFGH".repeat(100);
+      raw += "ABCDEFGH".repeat(100);
       /* Add some random data */
       for (let j = 0; j < 100; j++) {
-        input += String.fromCharCode(65 + Math.floor(Math.random() * 26));
+        raw += String.fromCharCode(65 + Math.floor(Math.random() * 26));
       }
     }
-
-    const compressed = compressString(input);
-    const decompressed = decompressString(compressed);
-    assertEquals(decompressed, input);
+    const enc = compressString(raw);
+    const dec = decompressString(enc);
+    assertEquals(dec, raw);
   });
 });
 
@@ -271,14 +244,12 @@ describe("boundary condition tests", () => {
     /* Verifies the decoder's robustness against data corruption */
     try {
       /* First compress valid data */
-      const input = "Test data for corruption test";
-      const compressed = compressString(input);
+      const raw = "Test data for corruption test";
+      const enc = compressString(raw);
 
-      /* Now corrupt the middle of the compressed data */
-      const corruptedData = new Uint8Array(compressed.length);
-      for (let i = 0; i < compressed.length; i++) {
-        corruptedData[i] = compressed[i];
-      }
+      /* Now corrupt the middle of the enc data */
+      const corruptedData = new Uint8Array(enc.length);
+      for (let i = 0; i < enc.length; i++) corruptedData[i] = enc[i];
 
       /* Corrupt data in the middle (after header) */
       if (corruptedData.length > 10) {
@@ -288,10 +259,10 @@ describe("boundary condition tests", () => {
       }
 
       /* This should either throw an error or return invalid data */
-      const decompressed = decompressString(corruptedData);
+      const dec = decompressString(corruptedData);
 
       /* If it doesn't throw, the result should at least be different */
-      assertNotEquals(decompressed, input);
+      assertNotEquals(dec, raw);
     } catch (error) {
       /* It's okay if it throws, as we're testing error handling */
       assertInstanceOf(error, Error);
@@ -307,10 +278,10 @@ describe("boundary condition tests", () => {
     /* Test with sizes near block boundaries to hit edge cases */
     for (const offset of [-1, 0, 1]) {
       const size = blockSize + offset;
-      const input = "A".repeat(size);
-      const compressed = compressString(input);
-      const decompressed = decompressString(compressed);
-      assertEquals(decompressed, input);
+      const raw = "A".repeat(size);
+      const enc = compressString(raw);
+      const dec = decompressString(enc);
+      assertEquals(dec, raw);
     }
   });
 });
@@ -321,25 +292,22 @@ describe("Internal algorithm stress tests", () => {
 		including the MoveBlock method when buffer boundaries are hit */
     const largeSize = 1024 * 128;
     const pattern = "ABCD".repeat(32); // 128 byte pattern
-    const input = pattern.repeat(Math.ceil(largeSize / pattern.length));
+    const raw = pattern.repeat(Math.ceil(largeSize / pattern.length));
 
-    const compressed = compressString(input);
-    const decompressed = decompressString(compressed);
-    assertEquals(decompressed, input);
+    const enc = compressString(raw);
+    const dec = decompressString(enc);
+    assertEquals(dec, raw);
   });
 
   it("compression at different levels to exercise all paths", () => {
-    const input =
+    const raw =
       "This is a test string that will be compressed at different levels to ensure all code paths are exercised."
         .repeat(100);
 
-    /* Test compression levels 1-9 to ensure all compression paths are hit */
-    const levels = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
-
-    for (const level of levels) {
-      const compressed = compressString(input, level);
-      const decompressed = decompressString(compressed);
-      assertEquals(decompressed, input);
+    for (let mode = 1 as const; mode <= 9; ++mode) {
+      const enc = compressString(raw, mode);
+      const dec = decompressString(enc);
+      assertEquals(dec, raw);
     }
   });
 });

@@ -6,58 +6,51 @@
  * @license MIT
  ******************************************************************************/
 
-import type { uint, uint8 } from "@fe-lib/alias.ts";
-import type { CBitTreeDecoder } from "./util.ts";
+import type { uint, uint32, uint8 } from "@fe-lib/alias.ts";
 import {
-  add64,
-  and64,
-  compare64,
-  fromInt64,
-  lowBits64,
-  shl64,
-  shru64,
-} from "./util.ts";
+  CProb,
+  kNumBitModelTotalBits,
+  kNumMoveBits,
+  kTopValue,
+} from "./alias.ts";
+import type { BufferWithCount } from "./streams.ts";
+import type { BitTree } from "./util.ts";
 /*80--------------------------------------------------------------------------*/
 
 export class RangeEncoder {
-  stream: { buf: uint8[]; count: uint } | null = null;
-  /** Initialized in `Init()` */
-  rrange!: number;
-  /** Initialized in `Init()` */
-  cache!: number;
-  /** Initialized in `Init()` */
-  low!: [number, number];
-  /** Initialized in `Init()` */
-  cacheSize!: number;
-  /** Initialized in `Init()` */
-  position!: [number, number];
+  stream: BufferWithCount | null = null;
+  #rrange: uint32 = 0;
+  #cache: uint8 = 0;
+  #low = 0;
+  cacheSize = 0;
+  pos = 0;
 
   Init(): void {
-    this.low = [0, 0];
-    this.rrange = 0xFFFF_FFFF;
+    //jjjj TOCLEANUP
+    // this.#low = [0, 0];
+    this.#rrange = 0xFFFF_FFFF;
     this.cacheSize = 1;
-    this.cache = 0;
-    this.position = [0, 0];
+    //jjjj TOCLEANUP
+    // this.#cache = 0;
+    // this.pos = [0, 0];
   }
 
-  /** Write byte to stream */
-  private writeToStream(
-    stream: { buf: number[]; count: number } | null,
-    b: number,
-  ): void {
-    if (!stream) return;
+  /** @const @param b_x */
+  #writeByte(b_x: uint32): void {
+    const outbuf = this.stream;
+    if (!outbuf) return;
+    const outbufCount = outbuf.count;
 
-    // Ensure buffer has enough capacity
-    if (stream.count >= stream.buf.length) {
-      const newSize = Math.max(stream.buf.length * 2, stream.count + 1);
-      const newBuf = new Array(newSize);
-      for (let i = 0; i < stream.count; i++) {
-        newBuf[i] = stream.buf[i];
-      }
-      stream.buf = newBuf;
+    /* Ensure buffer has enough capacity */
+    if (outbufCount >= outbuf.buf.length) {
+      const newSize = Math.max(outbuf.buf.length * 2, outbufCount + 1);
+      outbuf.buf.length = outbufCount;
+      const newBuf = Array.mock<uint8>(newSize).fillArray(outbuf.buf);
+      outbuf.buf = newBuf;
     }
 
-    stream.buf[stream.count++] = b << 24 >> 24;
+    outbuf.buf[outbufCount] = b_x & 0xff;
+    outbuf.count += 1;
   }
 
   /**
@@ -65,74 +58,87 @@ export class RangeEncoder {
    * access
    */
   shiftLow(): void {
-    const LowHi = lowBits64(shru64(this.low, 32));
-    if (LowHi != 0 || compare64(this.low, [0xff00_0000, 0]) < 0) {
-      this.position = add64(
-        this.position,
-        fromInt64(this.cacheSize),
-      );
+    const LowHi = Number(BigInt(this.#low) >> 32n) | 0;
+    // console.log([
+    //   "RangeEncoder.shiftLow():",
+    //   `#low: 0x${this.#low.toString(16)}, LowHi: 0x${LowHi.toString(16)}`,
+    // ].join(" "));
+    if (LowHi !== 0 || this.#low < 0xff00_0000) {
+      this.pos += this.cacheSize;
 
-      let temp = this.cache;
+      let temp = this.#cache;
       do {
-        this.writeToStream(this.stream, temp + LowHi);
-        temp = 255;
-      } while ((this.cacheSize -= 1) != 0);
+        this.#writeByte(temp + LowHi);
+        temp = 0xff;
+      } while ((this.cacheSize -= 1) !== 0);
 
-      this.cache = lowBits64(this.low) >>> 24;
+      this.#cache = (this.#low | 0) >>> 24;
+      // } else {
+      //   console.log(`%crun here: `, `color:${LOG_cssc.runhere}`);
     }
 
     this.cacheSize += 1;
-    this.low = shl64(and64(this.low, [16777215, 0]), 8);
+    /*! `>>> 0` is to make sure that `#low` is treated as unsigned integer. */
+    this.#low = (this.#low & 0xff_ffff) << 8 >>> 0;
   }
 
-  encodeBit(probs: number[], index: number, symbol: number): void {
-    let newBound, prob = probs[index];
-    newBound = (this.rrange >>> 11) * prob;
+  /**
+   * @borrow @headconst @param probs_x
+   * @const @param index_x
+   * @const @param symbol_x
+   */
+  encodeBit(probs_x: CProb[], index_x: uint, symbol_x: 0 | 1): void {
+    let prob = probs_x[index_x];
+    const newBound = (this.#rrange >>> kNumBitModelTotalBits) * prob;
 
-    if (!symbol) {
-      this.rrange = newBound;
-      probs[index] = prob + (2048 - prob >>> 5) << 16 >> 16;
+    if (symbol_x === 0) {
+      this.#rrange = newBound;
+      prob += (1 << kNumBitModelTotalBits) - prob >>> kNumMoveBits;
     } else {
-      // Need helper methods for 64-bit arithmetic
-      this.low = add64(
-        this.low,
-        and64(fromInt64(newBound), [0xFFFFFFFF, 0]),
-      );
-      this.rrange -= newBound;
-      probs[index] = prob - (prob >>> 5) << 16 >> 16;
+      this.#low += newBound;
+      this.#rrange -= newBound;
+      prob -= prob >>> kNumMoveBits;
     }
+    probs_x[index_x] = prob;
 
-    if (!(this.rrange & -0x1000000)) {
-      this.rrange <<= 8;
+    // if (this.#rrange < kTopValue) {
+    if (!(this.#rrange & -kTopValue)) {
+      this.#rrange <<= 8;
       this.shiftLow();
     }
+    // console.log(`RangeEncoder.encodeBit(): #low: 0x${this.#low.toString(16)}`);
   }
 
-  encodeBitTree(encoder: CBitTreeDecoder, symbol: number): void {
-    let bit, bitIndex, m = 1;
-
-    for (bitIndex = encoder.NumBits; bitIndex != 0;) {
-      bitIndex -= 1;
-      bit = symbol >>> bitIndex & 1;
-      this.encodeBit(encoder.Probs, m, bit);
-      m = m << 1 | bit;
+  /**
+   * @headconst @param bitTree_x
+   * @const @param symbol_x
+   */
+  encodeBitTree(bitTree_x: BitTree, symbol_x: uint8): void {
+    let m_ = 1;
+    for (let i = bitTree_x.NumBits; i--;) {
+      const bit = (symbol_x >>> i & 1) as 0 | 1;
+      this.encodeBit(bitTree_x.Probs, m_, bit);
+      m_ = m_ << 1 | bit;
     }
   }
 
-  encodeDirectBits(valueToEncode: number, numTotalBits: number): void {
-    for (let i = numTotalBits - 1; i >= 0; i -= 1) {
-      this.rrange >>>= 1;
-      if ((valueToEncode >>> i & 1) == 1) {
-        this.low = add64(
-          this.low,
-          fromInt64(this.rrange),
-        );
+  /**
+   * @const @param val_x
+   * @const @param numBits_x
+   */
+  encodeDirectBits(val_x: uint32, numBits_x: uint8): void {
+    for (let i = numBits_x; i--;) {
+      this.#rrange >>>= 1;
+      if ((val_x >>> i & 1) === 1) {
+        this.#low += this.#rrange;
       }
-      if (!(this.rrange & -0x1000000)) {
-        this.rrange <<= 8;
+      // if (this.#rrange < kTopValue) {
+      if (!(this.#rrange & -kTopValue)) {
+        this.#rrange <<= 8;
         this.shiftLow();
       }
     }
+    // console.log(`RangeEncoder.encodeBit(): #low: 0x${this.#low.toString(16)}`);
   }
 }
 /*80--------------------------------------------------------------------------*/

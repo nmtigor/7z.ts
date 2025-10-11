@@ -5,7 +5,7 @@ TOTEXT
 ```bash
 cd /path_to/7z.ts
 # deno 2.4.3
-deno test # 11 passed (30 steps)
+deno test # 10 passed (29 steps)
 ```
 
 ### Main references

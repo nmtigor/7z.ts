@@ -3,7 +3,7 @@
  * @license MIT
  ******************************************************************************/
 
-import type { TypedArray, uint16 } from "../alias.ts";
+import type { TypedArray, Uint16 } from "../alias.ts";
 import { validateBinaryLike } from "./general_cf.ts";
 import { MurmurHash3_64 } from "./murmurhash3.ts";
 import * as Is from "./is.ts";
@@ -24,41 +24,41 @@ export const linesOf = (text_x: string) => text_x.split(lt_re_);
 /**
  * @const @param _x the UTF-16 code unit value returned by `String.charCodeAt()`
  */
-export const isSpaceOrTab = (_x: uint16): boolean =>
+export const isSpaceOrTab = (_x: Uint16): boolean =>
   _x === /* " " */ 0x20 || _x === /* "\t" */ 9;
 
 /** @see {@linkcode isSpaceOrTab()} */
-export const isLFOr0 = (_x: uint16): boolean =>
+export const isLFOr0 = (_x: Uint16): boolean =>
   _x === /* "\n" */ 0xA || _x === 0;
 
 /** @see {@linkcode isSpaceOrTab()} */
-export const isDecimalDigit = (_x: uint16): boolean => 0x30 <= _x && _x <= 0x39;
+export const isDecimalDigit = (_x: Uint16): boolean => 0x30 <= _x && _x <= 0x39;
 /** @see {@linkcode isSpaceOrTab()} */
-export const isHexDigit = (_x: uint16): boolean =>
+export const isHexDigit = (_x: Uint16): boolean =>
   (0x30 <= _x && _x <= 0x39) || // 0..9
   (0x41 <= _x && _x <= 0x46) || // A..F
   (0x61 <= _x && _x <= 0x66); // a..f
 /** @see {@linkcode isSpaceOrTab()} */
-export const isOctalDigit = (_x: uint16): boolean => (0x30 <= _x && _x <= 0x37); // 0..7
+export const isOctalDigit = (_x: Uint16): boolean => (0x30 <= _x && _x <= 0x37); // 0..7
 
 /** @see {@linkcode isSpaceOrTab()} */
 export const isASCIIUpLetter = (
-  _x: uint16,
+  _x: Uint16,
 ): boolean => (0x41 <= _x && _x <= 0x5A); // A..Z
 /** @see {@linkcode isSpaceOrTab()} */
 export const isASCIILoLetter = (
-  _x: uint16,
+  _x: Uint16,
 ): boolean => (0x61 <= _x && _x <= 0x7A); // a..z
 /** @see {@linkcode isSpaceOrTab()} */
-export const isASCIILetter = (_x: uint16): boolean =>
+export const isASCIILetter = (_x: Uint16): boolean =>
   isASCIIUpLetter(_x) || isASCIILoLetter(_x);
 
 /** @see {@linkcode isSpaceOrTab()} */
-export const isWordLetter = (_x: uint16): boolean =>
+export const isWordLetter = (_x: Uint16): boolean =>
   isDecimalDigit(_x) || isASCIILetter(_x) || _x === /* "_" */ 0x5F;
 
 /** @see {@linkcode isSpaceOrTab()} */
-export const isASCIIControl = (_x: uint16): boolean =>
+export const isASCIIControl = (_x: Uint16): boolean =>
   0 <= _x && _x <= 0x1F || _x === 0x7F;
 
 // deno-fmt-ignore
@@ -73,9 +73,9 @@ export const ws_a = [
   0x0_202F, 0x0_205F,
   0x0_3000,
   0x0_FEFF,
-] as uint16[];
+] as Uint16[];
 /** @see {@linkcode isSpaceOrTab()} */
-export const isWhitespaceUCod = (_x: uint16, a_x: uint16[] = ws_a) =>
+export const isWhitespaceUCod = (_x: Uint16, a_x: Uint16[] = ws_a) =>
   a_x.indexOf(_x) >= 0;
 
 // /* Not sure if js impls use regexp interning like string. So. */

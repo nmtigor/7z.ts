@@ -108,57 +108,62 @@ export const vInt = v.pipe(v.number(), v.integer());
 // export type int = v.InferInput<typeof vInt>;
 export type uint = number;
 // export type uint = Brand_int{"uint">;
-export const vUint = v.pipe(vInt, v.minValue(0));
+export const vuint = v.pipe(vInt, v.minValue(0));
 // export const Int = BigInt;
 // export const UInt = BigInt;
 
-export type int64 = Brand<int, "int64">;
-const vInt64 = v.pipe(vInt, v.brand("int64"));
+export type int64 = int;
+export type Int64 = Brand<int64, "Int64">;
+const vInt64 = v.pipe(vInt, v.brand("Int64"));
 //jjjj TOCLEANUP
-// export type Brand_int64<TBrand> = int64 & { [$brand_int64]: TBrand };
-export type Brand_int64<TBrand extends v.BrandName> = int64 & v.Brand<TBrand>;
-export type int32 = Brand<int, "int32">;
+// export type Brand_Int64<TBrand> = Int64 & { [$brand_int64]: TBrand };
+export type Brand_Int64<TBrand extends v.BrandName> = Int64 & v.Brand<TBrand>;
+export type int32 = int;
+export type Int32 = Brand<int32, "Int32">;
 //jjjj TOCLEANUP
-// export type Brand_int32<TBrand> = int32 & { [$brand_int32]: TBrand };
-export type Brand_int32<TBrand extends v.BrandName> = int32 & v.Brand<TBrand>;
-export type int16 = Brand<int, "int16">;
-export type int8 = Brand<int, "int8">;
+// export type Brand_Int32<TBrand> = Int32 & { [$brand_int32]: TBrand };
+export type Brand_Int32<TBrand extends v.BrandName> = Int32 & v.Brand<TBrand>;
+export type int16 = int;
+export type Int16 = Brand<int16, "Int16">;
+export type int8 = int;
+export type Int8 = Brand<int8, "Int8">;
 export type uint64 = uint;
 export type uint32 = uint;
-// export type uint32 = Brand<uint, "uint32">; //jjjj try to use this
-export type uint16 = Brand<uint, "uint16">;
+export type Uint32 = Brand<uint32, "Uint32">;
+export type uint16 = uint;
+export type Uint16 = Brand<uint16, "Uint16">;
 export const vUint16 = v.pipe(
-  vUint,
+  vuint,
   v.maxValue(2 ** 16 - 1),
-  v.brand("uint16"),
+  v.brand("Uint16"),
 );
 export type uint8 = uint;
-// export type uint8 = Brand<uint, "uint8">; //jjjj try to use this
-export const vUint8 = v.pipe(vUint, v.maxValue(2 ** 8 - 1));
+export const vuint8 = v.pipe(vuint, v.maxValue(2 ** 8 - 1));
+export type Uint8 = Brand<uint8, "Uint8">;
 
 export type unum = number;
-export const vUnum = v.pipe(v.number(), v.minValue(0));
+export const vunum = v.pipe(v.number(), v.minValue(0));
 /*49-------------------------------------------*/
 
 /** 0 is special */
 /* "Invalid type: Expected Object but received 16" */
 // const $brand_ = Symbol("$brand_");
 // export type id_t = uint & { [$brand_]: "id_t" };
-// export const vId = v.intersect([
-//   vUint,
+// export const vid_t = v.intersect([
+//   vuint,
 //   v.object({ [$brand_]: v.literal("id_t") }),
 // ]);
-// console.log(v.safeParse(vId, 16));
+// console.log(v.safeParse(vid_t, 16));
 /* ~ */
 export type id_t = Brand<uint, "id_t">;
-export const vId = v.pipe(vUint, v.brand("id_t"));
+export const vid_t = v.pipe(vuint, v.brand("id_t"));
 //jjjj TOCLEANUP
 // export type Brand_id<TBrand> = id_t & { [$brand_id]: TBrand };
 export type Brand_id<TBrand extends v.BrandName> = id_t & v.Brand<TBrand>;
 
 /** Count one "\t" as 1 */
 export type loff_t = uint32;
-export type ldt_t = Brand_int32<"ldt_t">;
+export type ldt_t = Brand_Int32<"ldt_t">;
 export const loff_UNDEFINED: loff_t = -1_000_000_001;
 export const loff_MAX: loff_t = 1_000_000_000;
 /** Count one "\t" as e.g. 2, 4, 8 */
@@ -169,8 +174,8 @@ export type lnum_t = Brand<uint32, "lnum_t">;
 export const lnum_MAX = 1_000_000 as lnum_t;
 
 /** Type of unix timestamp */
-export type ts_t = Brand_int64<"ts_t">;
-export const vTs = v.pipe(vInt64, v.brand("ts_t"));
+export type ts_t = Brand_Int64<"ts_t">;
+export const vts_t = v.pipe(vInt64, v.brand("ts_t"));
 
 /** Recommand [0,1] */
 export type Ratio = number;

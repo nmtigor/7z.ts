@@ -8,7 +8,7 @@
  ******************************************************************************/
 
 import type { uint, uint8 } from "@fe-lib/alias.ts";
-import { vUint } from "@fe-lib/alias.ts";
+import { vuint } from "@fe-lib/alias.ts";
 import * as Is from "@fe-lib/util/is.ts";
 import * as v from "@valibot/valibot";
 /*80--------------------------------------------------------------------------*/
@@ -28,7 +28,7 @@ export type BufferWithCount = {
 };
 const vBufferWithCount_ = v.object({
   buf: v.custom((val) => Is.array(val)),
-  count: vUint,
+  count: vuint,
   write: v.function(),
 });
 export const isBufferWithCount = (x: unknown): x is BufferWithCount => {

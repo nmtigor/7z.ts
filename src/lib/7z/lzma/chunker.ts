@@ -35,12 +35,13 @@ export class EncoderChunker implements BaseChunker_ {
   /** Process one chunk of encoding */
   processChunk(): boolean {
     if (!this.alive) throw new Error("bad state");
-    if (!this.encoder) throw new Error("No decoding");
+    //jjjj TOCLEANUP
+    // if (!this.encoder) throw new Error("No decoding");
 
     this.encoder.codeOneBlock();
-    this.inBytesProcessed = this.encoder.processedInSize[0];
+    this.inBytesProcessed = this.encoder.processedInSize;
 
-    if (this.encoder.finished[0]) {
+    if (this.encoder.finished) {
       this.encoder.ReleaseStreams();
       this.alive = false;
     }
@@ -66,7 +67,8 @@ export class DecoderChunker implements BaseChunker_ {
   /** Process one chunk of decoding */
   processChunk(): boolean {
     if (!this.alive) throw new Error("Bad state");
-    if (this.encoder) throw new Error("No encoding");
+    //jjjj TOCLEANUP
+    // if (this.encoder) throw new Error("No encoding");
 
     const result = this.decoder.codeOneChunk();
     if (result === DecodeChunkR.err) throw new Error("Corrupted input");

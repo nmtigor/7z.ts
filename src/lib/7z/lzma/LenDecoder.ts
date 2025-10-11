@@ -7,7 +7,7 @@ import type { uint8 } from "@fe-lib/alias.ts";
 import "@fe-lib/jslang.ts";
 import type { CProb } from "./alias.ts";
 import { CHOICE_ARRAY_SIZE } from "./alias.ts";
-import { CBitTreeDecoder, initProbs } from "./util.ts";
+import { BitTree, initProbs } from "./util.ts";
 /*80--------------------------------------------------------------------------*/
 
 export class LenDecoder {
@@ -16,16 +16,16 @@ export class LenDecoder {
 
   readonly choice = Array.mock<CProb>(CHOICE_ARRAY_SIZE);
   /**
-   * `length <= LEN_CODERS_SIZE`
-   * Initialized in `Create()`
+   * `length <= LEN_CODERS_SIZE`\
+   * Initialized in {@linkcode Create()}
    */
-  LowCoder!: CBitTreeDecoder[];
+  LowCoder!: BitTree[];
   /**
-   * `length <= LEN_CODERS_SIZE`
-   * Initialized in `Create()`
+   * `length <= LEN_CODERS_SIZE`\
+   * Initialized in {@linkcode Create()}
    */
-  MidCoder!: CBitTreeDecoder[];
-  readonly HighCoder = new CBitTreeDecoder(8);
+  MidCoder!: BitTree[];
+  readonly HighCoder = new BitTree(8);
 
   /** @const @param numPosStates_x */
   Create(numPosStates_x: uint8): void {
@@ -34,8 +34,8 @@ export class LenDecoder {
     this.LowCoder = Array.mock(numPosStates_x);
     this.MidCoder = Array.mock(numPosStates_x);
     for (let posState = 0; posState < numPosStates_x; posState++) {
-      this.LowCoder[posState] = new CBitTreeDecoder(3);
-      this.MidCoder[posState] = new CBitTreeDecoder(3);
+      this.LowCoder[posState] = new BitTree(3);
+      this.MidCoder[posState] = new BitTree(3);
     }
   }
 

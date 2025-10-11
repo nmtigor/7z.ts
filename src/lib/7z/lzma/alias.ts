@@ -3,11 +3,21 @@
  * @license MIT
  ******************************************************************************/
 
-import type { Brand, uint16, uint8 } from "@fe-lib/alias.ts";
+import type { uint16, uint32, uint8 } from "@fe-lib/alias.ts";
 /*80--------------------------------------------------------------------------*/
 
-export type State = Brand<uint8, "State">;
-// export type State2 = Brand<uint16, "State2">;
+/** uint16 */
+export type CLen = uint16;
+/** uint32 */
+export type DictSize = uint32;
+
+/** uint16 */
+export type CProb = uint16;
+/** uint8 */
+export type CProbPrice = uint8;
+
+/** uint8 */
+export type CState = uint8;
 
 export enum DecodeChunkR {
   err = -1,
@@ -21,9 +31,8 @@ export enum DecodeChunkR {
 export const kNumBitModelTotalBits = 11;
 export const kNumMoveBits = 5;
 
-export type CProb = Brand<uint16, "CProb">;
-
-export const PROB_INIT_VAL = (1 << kNumBitModelTotalBits) / 2 as CProb;
+/** 1024 */
+export const PROB_INIT_VAL: CProb = (1 << kNumBitModelTotalBits) / 2;
 // console.log({ PROB_INIT_VAL }); // 1024
 /*49-------------------------------------------*/
 
@@ -40,15 +49,18 @@ export const kNumLenToPosStates = 4;
 export type kNumLenToPosStates = 4;
 export const kNumAlignBits = 4;
 export const kEndPosModelIndex = 14;
+/** 128 */
 const kNumFullDistances = 1 << (kEndPosModelIndex >> 1);
-export const kMatchMinLen = 2;
+export const kMatchMinLen: CLen = 2;
 /*49-------------------------------------------*/
 
-export const LZMA_DIC_MIN = 1 << 12; // 4096
+/** 4096 */
+export const LZMA_DIC_MIN = 1 << 12;
 /*49-------------------------------------------*/
 
-export const LEN_CODERS_SIZE = 1 << kNumPosBitsMax; // 16
-export type LEN_CODERS_SIZE = 16; // 16
+/** 16 */
+export const LEN_CODERS_SIZE = 1 << kNumPosBitsMax;
+export type LEN_CODERS_SIZE = 16;
 
 /** 0xC0 */
 export const MATCH_DECODERS_SIZE = kNumStates << kNumPosBitsMax; // 0xC0, 192
@@ -59,9 +71,15 @@ export const POS_CODERS_SIZE = 1 + kNumFullDistances - kEndPosModelIndex;
 // console.log({ POS_CODERS_SIZE }); // 115
 export type POS_CODERS_SIZE = 115;
 
-export const LITERAL_DECODER_SIZE = 0x300; // 768
+export const LITERAL_DECODER_SIZE = 0x300;
 export type LITERAL_DECODER_SIZE = 0x300;
 
 export const CHOICE_ARRAY_SIZE = 2;
 export type CHOICE_ARRAY_SIZE = 2;
+/*49-------------------------------------------*/
+/* Additional LZMA constants */
+
+export const INFINITY_PRICE: CProbPrice = 0xFFF_FFFF;
+export const MAX_UINT48 = 0xFFFF_FFFF_FFFF;
+export const DICTSIZE_THRESHOLD: DictSize = 0x3FFF_FFFF;
 /*80--------------------------------------------------------------------------*/

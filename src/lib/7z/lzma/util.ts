@@ -1,17 +1,18 @@
 /** 80**************************************************************************
  * Ref. [[lzma1]/src/utils.ts](https://github.com/xseman/lzma1/blob/master/src/utils.ts)
  *    * Simple constants are moved to "alias.ts"
+ *    * Remove `[number, number]` 64-bit integer and arithmetic
  *
  * @module lib/7z/lzma/util
  * @license MIT
  ******************************************************************************/
 
-import type { uint, uint8 } from "@fe-lib/alias.ts";
-import type { CProb, State } from "./alias.ts";
+import type { uint, uint32, uint8 } from "@fe-lib/alias.ts";
+import type { CLen, CProb, CProbPrice, CState } from "./alias.ts";
 import { kNumLenToPosStates, PROB_INIT_VAL } from "./alias.ts";
 /*80--------------------------------------------------------------------------*/
 
-export class CBitTreeDecoder {
+export class BitTree {
   NumBits: uint8;
   Probs;
 
@@ -25,28 +26,14 @@ export class CBitTreeDecoder {
   }
 }
 
-/** Literal decoder/encoder for optimization */
-export interface LiteralDecoderEncoder2 {
-  decoders: number[];
-}
-
-/* Constants for 64-bit arithmetic */
-const MAX_UINT32 = 0x1_0000_0000;
-const MAX_INT32 = 0x7FFF_FFFF;
-const MIN_INT32 = -0x8000_0000;
-/* ~ */
-
-/* Additional LZMA constants */
-export const INFINITY_PRICE = 0xFFF_FFFF;
-export const _MAX_UINT32 = 0xFFFF_FFFF;
-export const _MAX_UINT48 = 0xFFFF_FFFF_FFFF;
-export const DICTIONARY_SIZE_THRESHOLD = 0x3FFF_FFFF;
-/* ~ */
-
-/* Range coder constants */
-export const kNumMoveReducingBits = 2;
-export const kNumBitPriceShiftBits = 6;
-/* ~ */
+//jjjj TOCLEANUP
+// /* Range coder constants */
+// //jjjj TOCLEANUP
+// // export const kNumMoveReducingBits = 2;
+// // export const kNumBitPriceShiftBits = 6;
+// export const kNumMoveReducingBits = 4;
+// export const kNumBitPriceShiftBits = 4;
+// /* ~ */
 
 // deno-fmt-ignore
 /** CRC32 lookup table for hash calculations */
@@ -97,8 +84,67 @@ export const CRC32_TABLE = [
 ];
 
 /** Pre-computed static instances for common use */
-export const PROB_PRICES: number[] = createProbPrices();
-export const G_FAST_POS: number[] = createFastPos();
+export const PROB_PRICES: CProbPrice[] = createProbPrices();
+// const a_ = [];
+// for (let i = 0; i < PROB_PRICES.length; ++i) {
+//   a_.push(`${PROB_PRICES[i]?.toString(16)},`);
+//   if ((i + 1) % 16 === 0) {
+//     console.log(a_.join(""));
+//     a_.length = 0;
+//   }
+// }
+
+/**
+ * Get bit price using pre-computed probability prices
+ * @const @param prob_x
+ * @const @param bit_x
+ */
+export const getBitPrice = (prob_x: CProb, bit_x: 0 | 1): CProbPrice => {
+  return PROB_PRICES[((prob_x - bit_x ^ -bit_x) & 0x7ff) >>> 2];
+};
+
+/**
+ * Get reverse price for array of models
+ * @const @param prob_x
+ * @const @param numBits_x
+ * @const @param startIndex_x
+ * @param symbol_x
+ */
+export const reverseGetPrice = (
+  prob_x: CProb[],
+  numBits_x: uint8,
+  symbol_x: uint8,
+  startIndex_x: uint = 0,
+): CProbPrice => {
+  let m_ = 1, price: CProbPrice = 0;
+  for (let i = numBits_x; i--;) {
+    const bit = (symbol_x & 1) as 0 | 1;
+    symbol_x >>>= 1;
+    price += getBitPrice(prob_x[startIndex_x + m_], bit);
+    m_ = m_ << 1 | bit;
+  }
+  return price;
+};
+
+export const G_FAST_POS: uint8[] = createFastPos();
+// const b_ = [];
+// for (let i = 0; i < G_FAST_POS.length; ++i) {
+//   b_.push(`${G_FAST_POS[i]},`);
+//   if ((i + 1) % 16 === 0) {
+//     console.log(b_.join(""));
+//     b_.length = 0;
+//   }
+// }
+
+/**
+ * Get position slot for a distance value
+ * @param @param pos_x
+ */
+export function getPosSlot(pos_x: uint32): uint8 {
+  if (pos_x < 0x800) return G_FAST_POS[pos_x];
+  if (pos_x < 0x20_0000) return G_FAST_POS[pos_x >> 10] + 20;
+  return G_FAST_POS[pos_x >> 20] + 40;
+}
 
 /**
  * Copy array data with bounds checking and overlap handling
@@ -137,177 +183,6 @@ export function arraycopy(
     }
   }
 }
-
-/** Get bit price using pre-computed probability prices */
-export function getBitPrice(probability: number, bit: number): number {
-  return PROB_PRICES[((probability - bit ^ -bit) & 0x7ff) >>> 2];
-}
-/*80--------------------------------------------------------------------------*/
-
-/** Create a 64-bit number from low and high parts */
-export function create64(
-  valueLow: number,
-  valueHigh: number,
-): [number, number] {
-  valueHigh %= 1.8446744073709552E19;
-  valueLow %= 1.8446744073709552E19;
-  const diffHigh = valueHigh % MAX_UINT32;
-  const diffLow = Math.floor(valueLow / MAX_UINT32) * MAX_UINT32;
-  valueHigh = valueHigh - diffHigh + diffLow;
-  valueLow = valueLow - diffLow + diffHigh;
-
-  while (valueLow < 0) {
-    valueLow += MAX_UINT32;
-    valueHigh -= MAX_UINT32;
-  }
-
-  while (valueLow > 0xFFFF_FFFF) {
-    valueLow -= MAX_UINT32;
-    valueHigh += MAX_UINT32;
-  }
-  valueHigh = valueHigh % 1.8446744073709552E19;
-
-  while (valueHigh > 9_223_372_032_559_808_512) {
-    valueHigh -= 1.8446744073709552E19;
-  }
-
-  while (valueHigh < /** -2**63 */ -9_223_372_036_854_775_808) {
-    valueHigh += 1.8446744073709552E19;
-  }
-
-  return [valueLow, valueHigh];
-}
-
-/** Add two 64-bit numbers */
-export function add64(
-  a: [number, number],
-  b: [number, number],
-): [number, number] {
-  return create64(a[0] + b[0], a[1] + b[1]);
-}
-
-/** Subtract two 64-bit numbers */
-export function sub64(
-  a: [number, number],
-  b: [number, number],
-): [number, number] {
-  return create64(a[0] - b[0], a[1] - b[1]);
-}
-
-function pwrAsDouble(n: number): number {
-  if (n <= 0x1E) {
-    return 1 << n;
-  }
-
-  return pwrAsDouble(0x1E) * pwrAsDouble(n - 0x1E);
-}
-
-export function shru64(a: [number, number], n: number): [number, number] {
-  n &= 0x3F;
-  const shiftFact = pwrAsDouble(n);
-  let sr = create64(
-    Math.floor(a[0] / shiftFact),
-    a[1] / shiftFact,
-  );
-  if (a[1] < 0) {
-    sr = add64(sr, shl64([2, 0], 0x3F - n));
-  }
-  return sr;
-}
-
-export function shl64(a: [number, number], n: number): [number, number] {
-  let newHigh, newLow;
-  n &= 0x3F;
-
-  if (a[0] == 0 && a[1] == -9223372036854775808) {
-    if (!n) {
-      return a;
-    }
-    return [0, 0];
-  }
-
-  if (a[1] < 0) {
-    throw new Error("Neg");
-  }
-  const twoToN = pwrAsDouble(n);
-  newHigh = a[1] * twoToN % 1.8446744073709552E19;
-  newLow = a[0] * twoToN;
-  const diff = newLow - newLow % 0x100000000;
-  newHigh += diff;
-  newLow -= diff;
-
-  if (newHigh >= 9223372036854775807) {
-    newHigh -= 1.8446744073709552E19;
-  }
-
-  return [newLow, newHigh];
-}
-
-/**
- * Compare two 64-bit numbers
- * @borrow @const @param a_x
- * @borrow @const @param b_x
- * @return `-1` if `a_x < b_x`; `1` if `a_x > b_x`
- */
-export function compare64(
-  a_x: [number, number],
-  b_x: [number, number],
-): 0 | 1 | -1 {
-  if (a_x[0] == b_x[0] && a_x[1] == b_x[1]) return 0;
-
-  const nega = a_x[1] < 0;
-  const negb = b_x[1] < 0;
-  if (nega && !negb) return -1;
-  if (!nega && negb) return 1;
-  if (sub64(a_x, b_x)[1] < 0) return -1;
-  return 1;
-}
-
-export function and64(
-  a: [number, number],
-  b: [number, number],
-): [number, number] {
-  const highBits =
-    ~~Math.max(Math.min(a[1] / 0x100000000, 0x7FFFFFFF), -0x80000000) &
-    ~~Math.max(Math.min(b[1] / 0x100000000, 0x7FFFFFFF), -0x80000000);
-
-  const lowBits = lowBits64(a) & lowBits64(b);
-
-  const high = highBits * 0x100000000;
-  let low = lowBits;
-  if (lowBits < 0) low += 0x100000000;
-
-  return [low, high];
-}
-
-/** Extract low bits from 64-bit number */
-export function lowBits64(a: [number, number]): number {
-  if (a[0] >= 0x8000_0000) {
-    return ~~Math.max(Math.min(a[0] - MAX_UINT32, MAX_INT32), MIN_INT32);
-  }
-
-  return ~~Math.max(Math.min(a[0], MAX_INT32), MIN_INT32);
-}
-
-/** Create 64-bit number from integer */
-export function fromInt64(value: number): [number, number] {
-  if (value >= 0) {
-    return [value, 0];
-  } else {
-    return [value + MAX_UINT32, -MAX_UINT32];
-  }
-}
-
-/** Right shift 64-bit number */
-export function shr64(a: [number, number], n: number): [number, number] {
-  n &= 0x3F;
-  if (n <= 0x1E) {
-    const shiftFact = 1 << n;
-    return create64(Math.floor(a[0] / shiftFact), a[1] / shiftFact);
-  }
-  const shiftFact = (1 << 0x1E) * (1 << (n - 0x1E));
-  return create64(Math.floor(a[0] / shiftFact), a[1] / shiftFact);
-}
 /*80--------------------------------------------------------------------------*/
 /* Bit model operations */
 
@@ -322,25 +197,26 @@ export function initProbs(probs: CProb[]): void {
  * Get length to position state mapping
  * @const @param len_x
  */
-export function getLenToPosState(len_x: uint): uint8 {
+export function getLenToPosState(len_x: CLen): uint8 {
   return Math.min(len_x, kNumLenToPosStates - 1);
 }
 
-export const UpdateState_Literal = (state: State): State =>
-  (state < 4 ? 0 : state < 10 ? state - 3 : state - 6) as State;
-export const UpdateState_Match = (state: State): State =>
-  (state < 7 ? 7 : 10) as State;
-export const UpdateState_Rep = (state: State): State =>
-  (state < 7 ? 8 : 11) as State;
-export const UpdateState_ShortRep = (state: State): State =>
-  (state < 7 ? 9 : 11) as State;
+export const UpdateState_Literal = (state: CState): CState =>
+  state < 4 ? 0 : state < 10 ? state - 3 : state - 6;
+export const UpdateState_Match = (state: CState): CState => state < 7 ? 7 : 10;
+export const UpdateState_Rep = (state: CState): CState => state < 7 ? 8 : 11;
+export const UpdateState_ShortRep = (state: CState): CState =>
+  state < 7 ? 9 : 11;
 /*80--------------------------------------------------------------------------*/
 /* Bit tree operations */
 
-/** Create probability prices lookup table */
-export function createProbPrices(): number[] {
-  const probPrices = [];
-  for (let i = 8; i >= 0; --i) {
+/**
+ * Create probability prices lookup table
+ * @return `length === 0x200`
+ */
+export function createProbPrices(): CProbPrice[] {
+  const probPrices: CProbPrice[] = [];
+  for (let i = 9; i--;) {
     const start = 1 << (9 - i - 1);
     const end = 1 << (9 - i);
 
@@ -351,14 +227,53 @@ export function createProbPrices(): number[] {
 
   return probPrices;
 }
+/*
+   ,240,200,1E0,1C0,1B0,1A0,190,180,178,170,168,160,158,150,148,
+140,13C,138,134,130,12C,128,124,120,11C,118,114,110,10C,108,104,
+100,FE,FC,FA,F8,F6,F4,F2,F0,EE,EC,EA,E8,E6,E4,E2,
+E0,DE,DC,DA,D8,D6,D4,D2,D0,CE,CC,CA,C8,C6,C4,C2,
+C0,BF,BE,BD,BC,BB,BA,B9,B8,B7,B6,B5,B4,B3,B2,B1,
+B0,AF,AE,AD,AC,AB,AA,A9,A8,A7,A6,A5,A4,A3,A2,A1,
+A0,9F,9E,9D,9C,9B,9A,99,98,97,96,95,94,93,92,91,
+90,8F,8E,8D,8C,8B,8A,89,88,87,86,85,84,83,82,81,
+80,7F,7F,7E,7E,7D,7D,7C,7C,7B,7B,7A,7A,79,79,78,
+78,77,77,76,76,75,75,74,74,73,73,72,72,71,71,70,
+70,6F,6F,6E,6E,6D,6D,6C,6C,6B,6B,6A,6A,69,69,68,
+68,67,67,66,66,65,65,64,64,63,63,62,62,61,61,60,
+60,5F,5F,5E,5E,5D,5D,5C,5C,5B,5B,5A,5A,59,59,58,
+58,57,57,56,56,55,55,54,54,53,53,52,52,51,51,50,
+50,4F,4F,4E,4E,4D,4D,4C,4C,4B,4B,4A,4A,49,49,48,
+48,47,47,46,46,45,45,44,44,43,43,42,42,41,41,40,
+40,3F,3F,3F,3F,3E,3E,3E,3E,3D,3D,3D,3D,3C,3C,3C,
+3C,3B,3B,3B,3B,3A,3A,3A,3A,39,39,39,39,38,38,38,
+38,37,37,37,37,36,36,36,36,35,35,35,35,34,34,34,
+34,33,33,33,33,32,32,32,32,31,31,31,31,30,30,30,
+30,2F,2F,2F,2F,2E,2E,2E,2E,2D,2D,2D,2D,2C,2C,2C,
+2C,2B,2B,2B,2B,2A,2A,2A,2A,29,29,29,29,28,28,28,
+28,27,27,27,27,26,26,26,26,25,25,25,25,24,24,24,
+24,23,23,23,23,22,22,22,22,21,21,21,21,20,20,20,
+20,1F,1F,1F,1F,1E,1E,1E,1E,1D,1D,1D,1D,1C,1C,1C,
+1C,1B,1B,1B,1B,1A,1A,1A,1A,19,19,19,19,18,18,18,
+18,17,17,17,17,16,16,16,16,15,15,15,15,14,14,14,
+14,13,13,13,13,12,12,12,12,11,11,11,11,10,10,10,
+10,F,F,F,F,E,E,E,E,D,D,D,D,C,C,C,
+C,B,B,B,B,A,A,A,A,9,9,9,9,8,8,8,
+8,7,7,7,7,6,6,6,6,5,5,5,5,4,4,4,
+4,3,3,3,3,2,2,2,2,1,1,1,1,0,0,0,
+*/
 
-/** Create fast position lookup table */
-export function createFastPos(): number[] {
+/**
+ * Create fast position lookup table
+ * @return `length === 2048`
+ */
+export function createFastPos(): uint8[] {
   const gFastPos = [0, 1];
   let c_ = 2;
 
   for (let slotFast = 2; slotFast < 22; ++slotFast) {
     const k_ = 1 << ((slotFast >> 1) - 1);
+    // console.log({ k_ });
+    /* 1,1,2,2,4,4,8,8,...,256,256,512,512 */
 
     for (let j = 0; j < k_; ++j, ++c_) {
       gFastPos[c_] = slotFast;
@@ -367,4 +282,134 @@ export function createFastPos(): number[] {
 
   return gFastPos;
 }
+/*
+0,1,2,3,4,4,5,5,6,6,6,6,7,7,7,7,
+8,8,8,8,8,8,8,8,9,9,9,9,9,9,9,9,
+10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,
+11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,
+12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,
+12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,
+13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,
+13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,
+14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,
+14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,
+14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,
+14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,
+15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,
+15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,
+15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,
+15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,
+16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,
+16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,
+16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,
+16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,
+16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,
+16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,
+16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,
+16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,
+17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,
+17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,
+17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,
+17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,
+17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,
+17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,
+17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,
+17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,
+18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,
+18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,
+18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,
+18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,
+18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,
+18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,
+18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,
+18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,
+18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,
+18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,
+18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,
+18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,
+18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,
+18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,
+18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,
+18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,18,
+19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,
+19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,
+19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,
+19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,
+19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,
+19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,
+19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,
+19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,
+19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,
+19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,
+19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,
+19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,
+19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,
+19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,
+19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,
+19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,19,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
+*/
 /*80--------------------------------------------------------------------------*/
