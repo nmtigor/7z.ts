@@ -9,13 +9,13 @@
 import type { uint, uint8 } from "@fe-lib/alias.ts";
 import "@fe-lib/jslang.ts";
 import * as Is from "@fe-lib/util/is.ts";
-import type { DictSize } from "./alias.ts";
+import type { CDist } from "./alias.ts";
 import type { BufferWithCount, Writer } from "./streams.ts";
 import { isBufferWithCount } from "./streams.ts";
 /*80--------------------------------------------------------------------------*/
 
 export class LzOutWindow {
-  windowSize: DictSize = 0;
+  windowSize: CDist = 0;
   /** Initialized in {@linkcode Create()} */
   buffer!: uint8[];
 
@@ -30,7 +30,7 @@ export class LzOutWindow {
     if (writer) this.stream = writer;
   }
 
-  Create(windowSize: DictSize) {
+  Create(windowSize: CDist) {
     this.windowSize = windowSize;
     this.buffer = Array.mock(windowSize);
   }
@@ -40,7 +40,7 @@ export class LzOutWindow {
     this.streamPos = 0;
   }
 
-  CopyBlock(dist: DictSize, len: uint): void {
+  CopyBlock(dist: CDist, len: uint): void {
     let pos = this.pos - dist - 1;
     if (pos < 0) pos += this.windowSize;
 
@@ -66,7 +66,7 @@ export class LzOutWindow {
    * Get a byte from a relative position
    * @const @param dist_x
    */
-  GetByte(dist_x: DictSize): uint8 {
+  GetByte(dist_x: CDist): uint8 {
     let pos = this.pos - dist_x - 1;
     if (pos < 0) {
       pos += this.windowSize;

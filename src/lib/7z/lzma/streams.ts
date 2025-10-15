@@ -14,11 +14,11 @@ import * as v from "@valibot/valibot";
 /*80--------------------------------------------------------------------------*/
 
 /** Base stream interface for input/output operations */
-export interface BaseStream {
+export type BaseStream = {
   buf: Uint8Array | uint8[];
   pos: uint;
   count: uint;
-}
+};
 
 /** Represents a buffer with a count of used elements */
 export type BufferWithCount = {
@@ -36,9 +36,9 @@ export const isBufferWithCount = (x: unknown): x is BufferWithCount => {
 };
 
 /** Writer interface for output operations */
-export interface Writer {
+export type Writer = {
   buf?: uint8[];
   count?: uint;
   write(buf: uint8[]): void;
-}
+};
 /*80--------------------------------------------------------------------------*/

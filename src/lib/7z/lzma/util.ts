@@ -14,7 +14,7 @@ import { kNumLenToPosStates, PROB_INIT_VAL } from "./alias.ts";
 
 export class BitTree {
   NumBits: uint8;
-  Probs;
+  Probs: CProb[];
 
   constructor(NumBits: uint8) {
     this.NumBits = NumBits;
@@ -35,9 +35,11 @@ export class BitTree {
 // export const kNumBitPriceShiftBits = 4;
 // /* ~ */
 
-// deno-fmt-ignore
-/** CRC32 lookup table for hash calculations */
-export const CRC32_TABLE = [
+/**
+ * CRC32 lookup table for hash calculations\
+ * `uint32[256]`
+ */
+export const CRC32_TABLE = /* deno-fmt-ignore */ [
   0x00000000,  0x77073096,  0xEE0E612C,  0x990951BA,  0x076DC419,  0x706AF48F,
   0xE963A535,  0x9E6495A3,  0x0EDB8832,  0x79DCB8A4,  0xE0D5E91E,  0x97D2D988,
   0x09B64C2B,  0x7EB17CBD,  0xE7B82D07,  0x90BF1D91,  0x1DB71064,  0x6AB020F2,
@@ -84,7 +86,7 @@ export const CRC32_TABLE = [
 ];
 
 /** Pre-computed static instances for common use */
-export const PROB_PRICES: CProbPrice[] = createProbPrices();
+const PROB_PRICES: CProbPrice[] = createProbPrices();
 // const a_ = [];
 // for (let i = 0; i < PROB_PRICES.length; ++i) {
 //   a_.push(`${PROB_PRICES[i]?.toString(16)},`);
@@ -96,7 +98,7 @@ export const PROB_PRICES: CProbPrice[] = createProbPrices();
 
 /**
  * Get bit price using pre-computed probability prices
- * @const @param prob_x
+ * @const @param prob_x `>= 1`
  * @const @param bit_x
  */
 export const getBitPrice = (prob_x: CProb, bit_x: 0 | 1): CProbPrice => {
@@ -105,22 +107,22 @@ export const getBitPrice = (prob_x: CProb, bit_x: 0 | 1): CProbPrice => {
 
 /**
  * Get reverse price for array of models
- * @const @param prob_x
- * @const @param numBits_x
- * @const @param startIndex_x
+ * @borrow @const @param probs_x
+ * @param numBits_x
  * @param symbol_x
+ * @const @param startIndex_x
  */
 export const reverseGetPrice = (
-  prob_x: CProb[],
+  probs_x: CProb[],
   numBits_x: uint8,
   symbol_x: uint8,
   startIndex_x: uint = 0,
 ): CProbPrice => {
   let m_ = 1, price: CProbPrice = 0;
-  for (let i = numBits_x; i--;) {
+  for (; numBits_x--;) {
     const bit = (symbol_x & 1) as 0 | 1;
     symbol_x >>>= 1;
-    price += getBitPrice(prob_x[startIndex_x + m_], bit);
+    price += getBitPrice(probs_x[startIndex_x + m_], bit);
     m_ = m_ << 1 | bit;
   }
   return price;
@@ -197,9 +199,9 @@ export function initProbs(probs: CProb[]): void {
  * Get length to position state mapping
  * @const @param len_x
  */
-export function getLenToPosState(len_x: CLen): uint8 {
+export const getLenToPosState = (len_x: CLen): uint8 => {
   return Math.min(len_x, kNumLenToPosStates - 1);
-}
+};
 
 export const UpdateState_Literal = (state: CState): CState =>
   state < 4 ? 0 : state < 10 ? state - 3 : state - 6;

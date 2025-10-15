@@ -18,26 +18,32 @@ import type { BitTree } from "./util.ts";
 /*80--------------------------------------------------------------------------*/
 
 export class RangeEncoder {
-  stream: BufferWithCount | null = null;
-  #rrange: uint32 = 0;
+  #stream: BufferWithCount | null = null;
+  set stream(_x: BufferWithCount | null) {
+    this.#stream = _x;
+  }
+
+  #rrange: uint32 = 0xFFFF_FFFF;
   #cache: uint8 = 0;
   #low = 0;
-  cacheSize = 0;
-  pos = 0;
+  #cacheSize = 1;
+  #pos = 0;
 
-  Init(): void {
-    //jjjj TOCLEANUP
-    // this.#low = [0, 0];
-    this.#rrange = 0xFFFF_FFFF;
-    this.cacheSize = 1;
-    //jjjj TOCLEANUP
-    // this.#cache = 0;
-    // this.pos = [0, 0];
-  }
+  //jjjj TOCLEANUP
+  // Init(): void {
+  //   //jjjj TOCLEANUP
+  //   // this.#low = [0, 0];
+  //   this.#rrange = 0xFFFF_FFFF;
+  //   this.#cacheSize = 1;
+  //   //jjjj TOCLEANUP
+  //   // this.#cache = 0;
+  //   // this.#pos = [0, 0];
+  // }
+  /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
   /** @const @param b_x */
   #writeByte(b_x: uint32): void {
-    const outbuf = this.stream;
+    const outbuf = this.#stream;
     if (!outbuf) return;
     const outbufCount = outbuf.count;
 
@@ -64,20 +70,20 @@ export class RangeEncoder {
     //   `#low: 0x${this.#low.toString(16)}, LowHi: 0x${LowHi.toString(16)}`,
     // ].join(" "));
     if (LowHi !== 0 || this.#low < 0xff00_0000) {
-      this.pos += this.cacheSize;
+      this.#pos += this.#cacheSize;
 
       let temp = this.#cache;
       do {
         this.#writeByte(temp + LowHi);
         temp = 0xff;
-      } while ((this.cacheSize -= 1) !== 0);
+      } while ((this.#cacheSize -= 1) !== 0);
 
       this.#cache = (this.#low | 0) >>> 24;
       // } else {
       //   console.log(`%crun here: `, `color:${LOG_cssc.runhere}`);
     }
 
-    this.cacheSize += 1;
+    this.#cacheSize += 1;
     /*! `>>> 0` is to make sure that `#low` is treated as unsigned integer. */
     this.#low = (this.#low & 0xff_ffff) << 8 >>> 0;
   }
@@ -110,19 +116,6 @@ export class RangeEncoder {
   }
 
   /**
-   * @headconst @param bitTree_x
-   * @const @param symbol_x
-   */
-  encodeBitTree(bitTree_x: BitTree, symbol_x: uint8): void {
-    let m_ = 1;
-    for (let i = bitTree_x.NumBits; i--;) {
-      const bit = (symbol_x >>> i & 1) as 0 | 1;
-      this.encodeBit(bitTree_x.Probs, m_, bit);
-      m_ = m_ << 1 | bit;
-    }
-  }
-
-  /**
    * @const @param val_x
    * @const @param numBits_x
    */
@@ -139,6 +132,49 @@ export class RangeEncoder {
       }
     }
     // console.log(`RangeEncoder.encodeBit(): #low: 0x${this.#low.toString(16)}`);
+  }
+
+  /**
+   * @borrow @headconst @param probs_x
+   * @const @param numBits_x
+   * @const @param symbol_x
+   */
+  encodeBits(probs_x: CProb[], numBits_x: uint8, symbol_x: uint8): void {
+    let m_ = 1;
+    for (let i = numBits_x; i--;) {
+      const bit = (symbol_x >>> i & 1) as 0 | 1;
+      this.encodeBit(probs_x, m_, bit);
+      m_ = m_ << 1 | bit;
+    }
+  }
+
+  /**
+   * @borrow @headconst @param bitTree_x
+   * @const @param symbol_x
+   */
+  encodeBitTree(bitTree_x: BitTree, symbol_x: uint8): void {
+    this.encodeBits(bitTree_x.Probs, bitTree_x.NumBits, symbol_x);
+  }
+
+  /**
+   * @borrow @headconst @param probs_x
+   * @param numBits_x
+   * @param symbol_x
+   * @const @param startIndex_x
+   */
+  encodeReverseBits(
+    probs_x: CProb[],
+    numBits_x: uint8,
+    symbol_x: uint8,
+    startIndex_x: uint = 0,
+  ): void {
+    let m_ = 1;
+    for (; numBits_x--;) {
+      const bit = (symbol_x & 1) as 0 | 1;
+      this.encodeBit(probs_x, startIndex_x + m_, bit);
+      m_ = m_ << 1 | bit;
+      symbol_x >>= 1;
+    }
   }
 }
 /*80--------------------------------------------------------------------------*/

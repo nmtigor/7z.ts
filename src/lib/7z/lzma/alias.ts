@@ -9,12 +9,12 @@ import type { uint16, uint32, uint8 } from "@fe-lib/alias.ts";
 /** uint16 */
 export type CLen = uint16;
 /** uint32 */
-export type DictSize = uint32;
+export type CDist = uint32;
 
 /** uint16 */
 export type CProb = uint16;
 /** uint8 */
-export type CProbPrice = uint8;
+export type CProbPrice = uint32;
 
 /** uint8 */
 export type CState = uint8;
@@ -51,7 +51,12 @@ export const kNumAlignBits = 4;
 export const kEndPosModelIndex = 14;
 /** 128 */
 const kNumFullDistances = 1 << (kEndPosModelIndex >> 1);
-export const kMatchMinLen: CLen = 2;
+export const kMatchMinLen = 2;
+/** 273, `LZMA_MATCH_LEN_MAX` */
+export const kMatchMaxLen: CLen = kMatchMinLen + 256 + 16 - 1;
+
+/** 2048 */
+export const kNumOpts = 1 << 11;
 /*49-------------------------------------------*/
 
 /** 4096 */
@@ -81,5 +86,5 @@ export type CHOICE_ARRAY_SIZE = 2;
 
 export const INFINITY_PRICE: CProbPrice = 0xFFF_FFFF;
 export const MAX_UINT48 = 0xFFFF_FFFF_FFFF;
-export const DICTSIZE_THRESHOLD: DictSize = 0x3FFF_FFFF;
+export const DICTSIZE_THRESHOLD: CDist = 0x3FFF_FFFF;
 /*80--------------------------------------------------------------------------*/

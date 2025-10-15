@@ -8,33 +8,33 @@
 
 import type { int, uint, uint32, uint8 } from "@fe-lib/alias.ts";
 import "@fe-lib/jslang.ts";
-import type { CLen, CProb, CProbPrice, CState, DictSize } from "./alias.ts";
+import type { CDist, CLen, CProb, CProbPrice, CState } from "./alias.ts";
 import {
   INFINITY_PRICE,
+  kMatchMaxLen,
   kMatchMinLen,
   kNumAlignBits,
   kNumLenToPosStates,
+  kNumOpts,
   kNumPosBitsMax,
   kNumStates,
+  LZMA_DIC_MIN,
   MATCH_DECODERS_SIZE,
   POS_CODERS_SIZE,
 } from "./alias.ts";
-import { LenEncoder } from "./LenEncoder.ts";
-import type { ILitSubCoder } from "./LitCoder.ts";
+import { LenEncoder } from "./LenCoder.ts";
 import { LitEncoder } from "./LitCoder.ts";
 import type { Mode } from "./Lzma.ts";
 import { MatchFinder } from "./MatchFinder.ts";
 import { RangeEncoder } from "./RangeEncoder.ts";
-import type { BaseStream } from "./streams.ts";
+import type { BaseStream, BufferWithCount } from "./streams.ts";
 import {
   BitTree,
-  CRC32_TABLE,
   G_FAST_POS,
   getBitPrice,
   getLenToPosState,
   getPosSlot,
   initProbs,
-  PROB_PRICES,
   reverseGetPrice,
   UpdateState_Literal,
   UpdateState_Match,
@@ -72,39 +72,63 @@ function getBitTreePrice(bitTree_x: BitTree, symbol_x: uint8): CProbPrice {
   return price;
 }
 
-type Optimum_ = {
+type RepIndex_ = 0 | 1 | 2 | 3;
+
+class Optimum_ {
   state?: CState;
   price?: CProbPrice;
 
-  posPrev?: uint;
-  backPrev?: uint32 | -1;
-
+  posPrev?: CLen;
+  backPrev?: CDist | RepIndex_ | -1;
   prev1IsChar?: boolean;
 
-  prev2?: boolean;
-  posPrev2?: uint;
-  backPrev2?: uint32;
+  MakeAsChar(): void {
+    this.backPrev = -1;
+    this.prev1IsChar = false;
+  }
 
-  backs0?: DictSize;
-  backs1?: DictSize;
-  backs2?: DictSize;
-  backs3?: DictSize;
-};
+  MakeAsShortRep(): void {
+    this.backPrev = 0;
+    this.prev1IsChar = false;
+  }
+
+  prev2?: boolean;
+  posPrev2?: CLen;
+  backPrev2?: CDist | RepIndex_;
+
+  backs0?: CDist;
+  backs1?: CDist;
+  backs2?: CDist;
+  backs3?: CDist;
+}
 
 /** LZMA Encoder class that handles compression operations */
 export class LzmaEncoder {
   /* Core state properties */
   #state: CState = 0;
   #prevByte: uint8 = 0;
-  #distTableSize: DictSize = 0;
+  /**
+   * @example // 3229
+   *    42 = 21 * 2
+   * @example // 3230
+   *    32 = 16 * 2
+   */
+  #distTableSize: uint8 = 0;
   #longestMatchFound = false;
   #optimumEndIndex: uint = 0;
   #optimumCurIndex: uint = 0;
+  /** correct `#pos` to the first not encoded position  */
   #extraBufofs: int = 0;
   /* ~ */
 
   /* Dictionary and match finding */
-  #dictSize: DictSize = 0;
+  /**
+   * @example // 3229
+   *    0x20_0000
+   * @example // 3230
+   *    0x1_0000
+   */
+  #dictSize: CDist = 0;
   readonly #matchFinder = new MatchFinder();
   #numFastBytes: uint8 = 0;
   /* ~ */
@@ -127,11 +151,14 @@ export class LzmaEncoder {
   /* ~ */
 
   /* Distance and repetition arrays */
-  readonly #repDistances = Array.mock<DictSize>(4).fill(0);
+  readonly #repDistances = Array.mock<CDist>(4).fill(0);
   readonly #optimum: Optimum_[] = [];
   /* ~ */
 
-  readonly RangeEnc = new RangeEncoder();
+  readonly #RangeEnc = new RangeEncoder();
+  set stream(_x: BufferWithCount) {
+    this.#RangeEnc.stream = _x;
+  }
 
   /* Bit model arrays for different types of encoding decisions */
   readonly #isMatch = Array.mock<CProb>(MATCH_DECODERS_SIZE);
@@ -164,24 +191,22 @@ export class LzmaEncoder {
 
   readonly #litenc = new LitEncoder();
 
-  /* Distance and price arrays */
-  readonly #matchDistances: (CLen | DictSize)[] = [];
   /** `length < 256` */
   readonly #posSlotPrices: CProbPrice[] = [];
   /** `length < 512` */
   readonly #distancesPrices: CProbPrice[] = [];
   readonly #alignPrices = Array.mock<CProbPrice>(1 << kNumAlignBits);
-  #matchPriceCount: number = 0;
-  #alignPriceCount: number = 0;
+  #matchPriceCount: uint8 = 0;
+  #alignPriceCount: uint8 = 0;
   /* ~ */
 
   /* Optimization arrays */
-  readonly #reps = Array.mock<DictSize>(4);
+  readonly #reps = Array.mock<CDist>(4);
   readonly #repLens = Array.mock<CLen>(4);
   /* ~ */
 
   /* Processing counters */
-  processedInSize = 0;
+  processedInSize: uint = 0;
   //jjjj TOCLEANUP
   // #processedOutSize = 0;
   finished = false;
@@ -192,17 +217,19 @@ export class LzmaEncoder {
   /* Match finding properties */
   #longestMatchLen: CLen = 0;
   #matchFinderType = true;
-  /** Assigned by {@linkcode _GetMatches()} */
+  /** Assigned by {@linkcode #matchFinder.GetMatches()} */
   #numDistPairs: uint = 0;
-  #backRes: number = 0;
+  #backRes: uint32 | -1 = 0;
   /* ~ */
 
   Init(): void {
-    for (let i = 0; i < 0x1000; i++) {
-      this.#optimum[i] = {};
+    // for (let i = 0; i < 0x1000; i++) {
+    for (let i = kNumOpts; i--;) {
+      this.#optimum[i] = new Optimum_();
     }
 
-    this.RangeEnc.Init();
+    //jjjj TOCLEANUP
+    // this.#RangeEnc.Init();
 
     this.#litenc.Init();
     this.InitDist();
@@ -262,7 +289,7 @@ export class LzmaEncoder {
   }
 
   /** @const @param dictSize_x */
-  setDictSize(dictSize_x: DictSize): void {
+  setDictSize(dictSize_x: CDist): void {
     this.#dictSize = dictSize_x;
 
     let dicLogSize = 0;
@@ -270,92 +297,30 @@ export class LzmaEncoder {
     this.#distTableSize = dicLogSize * 2;
   }
 
-  /**
-   * @borrow @headconst @param encoder_x
-   * @const @param symbol_x
-   */
-  encodeLiteral(encoder_x: ILitSubCoder, symbol_x: uint8): void {
-    let context = 1;
-    for (let i = 8; i--;) {
-      const bit = ((symbol_x >> i) & 1) as 0 | 1;
-      this.RangeEnc.encodeBit(encoder_x.decoders, context, bit);
-      context = context << 1 | bit;
-    }
-  }
-
-  /**
-   * @borrow @headconst @param encoder_x
-   * @const @param matchByte_x
-   * @const @param symbol_x
-   */
-  encodeMatched(
-    encoder_x: ILitSubCoder,
-    matchByte_x: uint8,
-    symbol_x: uint8,
-  ): void {
-    let matchBit, state, same = true, context = 1;
-
-    for (let i = 8; i--;) {
-      const bit = ((symbol_x >> i) & 1) as 0 | 1;
-      state = context;
-
-      if (same) {
-        matchBit = (matchByte_x >> i) & 1;
-        state += (1 + matchBit) << 8;
-        same = matchBit === bit;
-      }
-
-      this.RangeEnc.encodeBit(encoder_x.decoders, state, bit);
-      context = context << 1 | bit;
-    }
-  }
-
-  /** @param symbol_x */
-  reverseEncode(symbol_x: uint8): void {
-    const probs = this.#posAlignEncoder.Probs;
-    let m_ = 1;
-    for (let i = this.#posAlignEncoder.NumBits; i--;) {
-      const bit = (symbol_x & 1) as 0 | 1;
-      this.RangeEnc.encodeBit(probs, m_, bit);
-      m_ = m_ << 1 | bit;
-      symbol_x >>= 1;
-    }
-  }
-
-  /** Reverse encode range */
-  reverseEncodeRange(
-    startIndex: number,
-    numBitLevels: number,
-    symbol: number,
-  ): void {
-    let bit, m = 1;
-
-    for (let i = 0; i < numBitLevels; ++i) {
-      bit = (symbol & 1) as 0 | 1;
-      this.RangeEnc.encodeBit(this.#posEncoders, startIndex + m, bit);
-      m = m << 1 | bit;
-      symbol >>= 1;
-    }
-  }
-
   /** @const @param posState_x */
   #writeEndMarker(posState_x: uint8): void {
-    this.RangeEnc.encodeBit(
+    const re_ = this.#RangeEnc;
+
+    re_.encodeBit(
       this.#isMatch,
       (this.#state << kNumPosBitsMax) + posState_x,
       1,
     );
 
-    this.RangeEnc.encodeBit(this.#isRep, this.#state, 0);
+    re_.encodeBit(this.#isRep, this.#state, 0);
 
     this.#state = UpdateState_Match(this.#state);
-    this.#lenenc.encode(0, posState_x, this.RangeEnc);
+    this.#lenenc.encode(0, posState_x, re_);
 
     const posSlot = 63;
     const lenToPosState = 0;
-    this.RangeEnc.encodeBitTree(this.#posSlotEncoder[lenToPosState], posSlot);
-    this.RangeEnc.encodeDirectBits(0x3ff_ffff, 26);
-    this.reverseEncode(0xf);
+    re_.encodeBitTree(this.#posSlotEncoder[lenToPosState], posSlot);
+    re_.encodeDirectBits(0x3ff_ffff, 26);
+    re_.encodeReverseBits(
+      this.#posAlignEncoder.Probs,
+      this.#posAlignEncoder.NumBits,
+      0xF,
+    );
   }
 
   /**
@@ -429,150 +394,27 @@ export class LzmaEncoder {
   }
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
-  private _GetMatches(): number {
-    const mf_ = this.#matchFinder;
-    const md_ = this.#matchDistances;
-
-    const lenLimit = Math.min(mf_.streamPos - mf_.pos, mf_.matchMaxLen);
-    if (lenLimit < mf_.kMinMatchCheck) {
-      mf_.MovePos_0();
-      return 0;
-    }
-
-    let offset = 0;
-    const matchMinPos = mf_.pos > mf_.cyclicBufferSize
-      ? mf_.pos - mf_.cyclicBufferSize
-      : 0;
-
-    const cur = mf_.bufpos_0;
-    let maxLen: CLen = 1;
-    let hash2Value = 0;
-    let hash3Value = 0;
-
-    let hashValue: uint32;
-    if (mf_.HASH_ARRAY) {
-      let temp = CRC32_TABLE[mf_.bufferBase[cur] & 0xFF] ^
-        (mf_.bufferBase[cur + 1] & 0xFF);
-      hash2Value = temp & 0x3FF;
-      temp ^= (mf_.bufferBase[cur + 2] & 0xFF) << 8;
-      hash3Value = temp & 0xFFFF;
-      hashValue = (temp ^ (CRC32_TABLE[mf_.bufferBase[cur + 3] & 0xFF] << 5)) &
-        mf_.hashMask;
-    } else {
-      hashValue = (mf_.bufferBase[cur] & 0xFF) ^
-        ((mf_.bufferBase[cur + 1] & 0xFF) << 8);
-    }
-
-    let curMatch = mf_.hash[mf_.kFixHashSize + hashValue] || 0;
-    if (mf_.HASH_ARRAY) {
-      let curMatch2 = mf_.hash[hash2Value] || 0;
-      const curMatch3 = mf_.hash[0x400 + hash3Value] || 0;
-      mf_.hash[hash2Value] = mf_.pos;
-      mf_.hash[0x400 + hash3Value] = mf_.pos;
-
-      if (curMatch2 > matchMinPos) {
-        if (
-          mf_.bufferBase[mf_.bufferOffset + curMatch2] === mf_.bufferBase[cur]
-        ) {
-          md_[offset++] = maxLen = 2;
-          md_[offset++] = mf_.pos - curMatch2 - 1;
-        }
-      }
-
-      if (curMatch3 > matchMinPos) {
-        if (
-          mf_.bufferBase[mf_.bufferOffset + curMatch3] === mf_.bufferBase[cur]
-        ) {
-          if (curMatch3 === curMatch2) {
-            offset -= 2;
-          }
-          md_[offset++] = maxLen = 3;
-          md_[offset++] = mf_.pos - curMatch3 - 1;
-          curMatch2 = curMatch3;
-        }
-      }
-
-      if (offset !== 0 && curMatch2 === curMatch) {
-        offset -= 2;
-        maxLen = 1;
-      }
-    }
-
-    mf_.hash[mf_.kFixHashSize + hashValue] = mf_.pos;
-    let ptr1 = mf_.cyclicBufferPos << 1;
-    let ptr0 = ptr1 + 1;
-    let len1 = mf_.kNumHashDirectBytes;
-    let len0 = len1;
-
-    if (mf_.kNumHashDirectBytes !== 0) {
-      if (curMatch > matchMinPos) {
-        if (
-          mf_.bufferBase[
-            mf_.bufferOffset + curMatch + mf_.kNumHashDirectBytes
-          ] !== mf_.bufferBase[cur + mf_.kNumHashDirectBytes]
-        ) {
-          md_[offset++] = maxLen = mf_.kNumHashDirectBytes;
-          md_[offset++] = mf_.pos - curMatch - 1;
-        }
-      }
-    }
-    //jjjj TOCLEANUP
-    // let count = mf_.cutValue;
-
-    while (1) {
+  /**
+   * Modify
+   *    - `#reps[i]`, `#repLens[i]`
+   */
+  #updateReps(): RepIndex_ {
+    let repMaxIndex = 0;
+    for (let i = 0; i < 4; ++i) {
+      this.#reps[i] = this.#repDistances[i];
       //jjjj TOCLEANUP
-      // if (curMatch <= matchMinPos || mf_.cutValue === 0) {
-      if (curMatch <= matchMinPos) {
-        //jjjj TOCLEANUP
-        // count -= 1;
-        mf_.son[ptr0] = mf_.son[ptr1] = 0;
-        break;
-      }
-      const delta = mf_.pos - curMatch;
+      // this.#repLens[i] = mf_.getMatchLen(-1, this.#reps[i], kMatchMaxLen);
+      this.#repLens[i] = this.#matchFinder.getMatchLen(
+        -this.#extraBufofs,
+        this.#reps[i],
+        kMatchMaxLen,
+      );
 
-      const cyclicPos = (delta <= mf_.cyclicBufferPos
-        ? mf_.cyclicBufferPos - delta
-        : mf_.cyclicBufferPos - delta + mf_.cyclicBufferSize) << 1;
-
-      const pby1 = mf_.bufferOffset + curMatch;
-      let len: CLen = len0 < len1 ? len0 : len1;
-
-      if (mf_.bufferBase[pby1 + len] === mf_.bufferBase[cur + len]) {
-        while ((len += 1) !== lenLimit) {
-          if (mf_.bufferBase[pby1 + len] !== mf_.bufferBase[cur + len]) {
-            break;
-          }
-        }
-
-        if (maxLen < len) {
-          md_[offset++] = maxLen = len;
-          md_[offset++] = delta - 1;
-          if (len === lenLimit) {
-            mf_.son[ptr1] = mf_.son[cyclicPos];
-            mf_.son[ptr0] = mf_.son[cyclicPos + 1];
-            break;
-          }
-        }
-      }
-
-      if (
-        (mf_.bufferBase[pby1 + len] & 0xFF) <
-          (mf_.bufferBase[cur + len] & 0xFF)
-      ) {
-        mf_.son[ptr1] = curMatch;
-        ptr1 = cyclicPos + 1;
-        curMatch = mf_.son[ptr1];
-        len1 = len;
-      } else {
-        mf_.son[ptr0] = curMatch;
-        ptr0 = cyclicPos;
-        curMatch = mf_.son[ptr0];
-        len0 = len;
+      if (this.#repLens[i] > this.#repLens[repMaxIndex]) {
+        repMaxIndex = i;
       }
     }
-
-    mf_.MovePos_0();
-    return offset;
+    return repMaxIndex as RepIndex_;
   }
 
   /** @param cur_x */
@@ -583,7 +425,7 @@ export class LzmaEncoder {
 
     do {
       if (this.#optimum[cur_x].prev1IsChar) {
-        this.#MakeAsChar(this.#optimum[posMem!]);
+        this.#optimum[posMem!].MakeAsChar();
         this.#optimum[posMem!].posPrev = posMem! - 1;
 
         if (this.#optimum[cur_x].prev2) {
@@ -608,29 +450,10 @@ export class LzmaEncoder {
     return this.#optimumCurIndex;
   }
 
-  #Flush(): void {
-    this.#ReleaseMFStream();
-    this.#writeEndMarker(this.#nowPos48 & this.#posStateMask);
-
-    for (let i = 0; i < 5; ++i) {
-      this.RangeEnc.shiftLow();
-    }
-  }
-
   /** @const pos_x */
   #GetOptimum(pos_x: uint): CLen {
     const mf_ = this.#matchFinder;
-    const md_ = this.#matchDistances;
-
-    let curAndLenCharPrice: CProbPrice,
-      curAndLenPrice: CProbPrice,
-      lenTest: CLen,
-      lenTest2: CLen,
-      nextMatchPrice: CProbPrice,
-      nextRepMatchPrice: CProbPrice,
-      offset,
-      optimum: Optimum_,
-      posStateNext: CState;
+    const md_ = mf_.matchDistances;
 
     if (this.#optimumEndIndex !== this.#optimumCurIndex) {
       const lenRes = this.#optimum[this.#optimumCurIndex].posPrev! -
@@ -639,8 +462,8 @@ export class LzmaEncoder {
       this.#optimumCurIndex = this.#optimum[this.#optimumCurIndex].posPrev!;
       return lenRes;
     }
-
     this.#optimumCurIndex = this.#optimumEndIndex = 0;
+
     let lenMain: CLen;
     if (this.#longestMatchFound) {
       lenMain = this.#longestMatchLen;
@@ -649,28 +472,20 @@ export class LzmaEncoder {
       lenMain = this.#ReadMatchDistances();
     }
 
-    let numDistPairs = this.#numDistPairs;
-    let numAvailBytes = mf_.getNumAvailableBytes() + 1;
+    const numDistPairs = this.#numDistPairs;
+    const numAvailBytes = mf_.numAvailBytes + 1;
 
     if (numAvailBytes < 2) {
       this.#backRes = -1;
       return 1;
     }
 
-    if (numAvailBytes > 0x111) {
-      numAvailBytes = 0x111;
-    }
+    //jjjj TOCLEANUP
+    // if (numAvailBytes > kMatchMaxLen) {
+    //   numAvailBytes = kMatchMaxLen;
+    // }
 
-    let repMaxIndex = 0;
-    for (let i = 0; i < 4; ++i) {
-      this.#reps[i] = this.#repDistances[i];
-      this.#repLens[i] = mf_.getMatchLen(-1, this.#reps[i], 273);
-
-      if (this.#repLens[i] > this.#repLens[repMaxIndex]) {
-        repMaxIndex = i;
-      }
-    }
-
+    const repMaxIndex = this.#updateReps();
     if (this.#repLens[repMaxIndex] >= this.#numFastBytes) {
       this.#backRes = repMaxIndex;
       const lenRes: CLen = this.#repLens[repMaxIndex];
@@ -684,8 +499,8 @@ export class LzmaEncoder {
       return lenMain;
     }
 
-    let curByte = mf_.getIndexByte(-1);
-    let matchByte = mf_.getIndexByte(-this.#repDistances[0] - 1 - 1);
+    const curByte = mf_.getIndexByte(-1);
+    const matchByte = mf_.getIndexByte(-1 - (this.#repDistances[0] + 1));
 
     if (
       lenMain < 2 && curByte !== matchByte && this.#repLens[repMaxIndex] < 2
@@ -695,31 +510,26 @@ export class LzmaEncoder {
     }
 
     this.#optimum[0].state = this.#state;
-    let posState = pos_x & this.#posStateMask;
-    this.#optimum[1].price =
-      PROB_PRICES[(this.#isMatch[(this.#state << 4) + posState]) >>> 2] +
+    const posState: CState = pos_x & this.#posStateMask;
+    const state2 = (this.#state << kNumPosBitsMax) + posState;
+    this.#optimum[1].price = getBitPrice(this.#isMatch[state2], 0) +
       this.#litenc.getSubCoder(pos_x, this.#prevByte)
         .getPrice(this.#state >= 7, matchByte, curByte);
+    this.#optimum[1].MakeAsChar();
 
-    this.#MakeAsChar(this.#optimum[1]);
-    let matchPrice: CProbPrice =
-      PROB_PRICES[(2048 - this.#isMatch[(this.#state << 4) + posState]) >>> 2];
-
-    let repMatchPrice: CProbPrice = matchPrice +
-      PROB_PRICES[(2048 - this.#isRep[this.#state]) >>> 2];
+    const matchPrice: CProbPrice = getBitPrice(this.#isMatch[state2], 1);
+    const repMatchPrice: CProbPrice = matchPrice +
+      getBitPrice(this.#isRep[this.#state], 1);
 
     if (matchByte === curByte) {
       const shortRepPrice = repMatchPrice + this.#GetRepLen1Price(posState);
       if (shortRepPrice < this.#optimum[1].price!) {
         this.#optimum[1].price = shortRepPrice;
-        this.#MakeAsShortRep(this.#optimum[1]);
+        this.#optimum[1].MakeAsShortRep();
       }
     }
 
-    let lenEnd: CLen = lenMain >= this.#repLens[repMaxIndex]
-      ? lenMain
-      : this.#repLens[repMaxIndex];
-
+    let lenEnd: CLen = Math.max(lenMain, this.#repLens[repMaxIndex]);
     if (lenEnd < kMatchMinLen) {
       this.#backRes = this.#optimum[1].backPrev!;
       return 1;
@@ -735,43 +545,42 @@ export class LzmaEncoder {
     do {
       this.#optimum[len].price = INFINITY_PRICE;
       len -= 1;
-    } while (len >= 2);
+    } while (len >= kMatchMinLen);
 
     for (let i = 0; i < 4; ++i) {
       let repLen = this.#repLens[i];
-      if (repLen < 2) continue;
+      if (repLen < kMatchMinLen) continue;
 
       const price_4: CProbPrice = repMatchPrice +
-        this.#GetPureRepPrice(i as 0 | 1 | 2 | 3, this.#state, posState);
+        this.#GetPureRepPrice(i as RepIndex_, this.#state, posState);
 
       do {
-        curAndLenPrice = price_4 +
-          this.#replenenc.getPrice(repLen - 2, posState);
-        optimum = this.#optimum[repLen];
+        const curAndLenPrice = price_4 +
+          this.#replenenc.getPrice(repLen - kMatchMinLen, posState);
+        const optimum = this.#optimum[repLen];
         if (curAndLenPrice < optimum.price!) {
           optimum.price = curAndLenPrice;
           optimum.posPrev = 0;
           optimum.backPrev = i;
           optimum.prev1IsChar = false;
         }
-      } while ((repLen -= 1) >= 2);
+      } while ((repLen -= 1) >= kMatchMinLen);
     }
 
     let normalMatchPrice: CProbPrice = matchPrice +
-      PROB_PRICES[(this.#isRep[this.#state]) >>> 2];
+      getBitPrice(this.#isRep[this.#state], 0);
 
-    len = this.#repLens[0] >= 2 ? this.#repLens[0] + 1 : 2;
-
+    len = Math.max(this.#repLens[0] + 1, kMatchMinLen);
     if (len <= lenMain) {
       let offs = 0;
       while (len > md_[offs]) offs += 2;
 
       for (;; len += 1) {
-        const distance: DictSize = md_[offs + 1];
-        curAndLenPrice = normalMatchPrice +
+        const distance: CDist = md_[offs + 1];
+        const curAndLenPrice = normalMatchPrice +
           this.#GetPosLenPrice(distance, len, posState);
-        optimum = this.#optimum[len];
 
+        const optimum = this.#optimum[len];
         if (curAndLenPrice < optimum.price!) {
           optimum.price = curAndLenPrice;
           optimum.posPrev = 0;
@@ -785,30 +594,28 @@ export class LzmaEncoder {
         }
       }
     }
-    let cur = 0;
 
-    while (1) {
-      ++cur;
-      if (cur == lenEnd) return this.#Backward(cur);
+    for (let curLen = 1;; ++curLen) {
+      if (curLen === lenEnd) return this.#Backward(curLen);
 
       let newLen: CLen = this.#ReadMatchDistances();
-      numDistPairs = this.#numDistPairs;
+      let numDistPairs = this.#numDistPairs;
 
       if (newLen >= this.#numFastBytes) {
         this.#longestMatchLen = newLen;
         this.#longestMatchFound = true;
-        return this.#Backward(cur);
+        return this.#Backward(curLen);
       }
 
       pos_x += 1;
-      let posPrev = this.#optimum[cur].posPrev!;
+      let posPrev = this.#optimum[curLen].posPrev!;
 
-      let state: CState | undefined;
-      if (this.#optimum[cur].prev1IsChar) {
+      let state: CState;
+      if (this.#optimum[curLen].prev1IsChar) {
         posPrev -= 1;
-        if (this.#optimum[cur].prev2) {
-          state = this.#optimum[this.#optimum[cur].posPrev2!].state!;
-          state = this.#optimum[cur].backPrev2! < 4
+        if (this.#optimum[curLen].prev2) {
+          state = this.#optimum[this.#optimum[curLen].posPrev2!].state!;
+          state = this.#optimum[curLen].backPrev2! < 4
             ? UpdateState_Rep(state)
             : UpdateState_Match(state);
         } else {
@@ -819,40 +626,40 @@ export class LzmaEncoder {
         state = this.#optimum[posPrev].state!;
       }
 
-      if (posPrev == cur - 1) {
-        if (!this.#optimum[cur].backPrev) {
+      if (posPrev === curLen - 1) {
+        if (!this.#optimum[curLen].backPrev) {
           state = UpdateState_ShortRep(state);
         } else {
           state = UpdateState_Literal(state);
         }
       } else {
         let pos;
-        if (this.#optimum[cur].prev1IsChar && this.#optimum[cur].prev2) {
-          posPrev = this.#optimum[cur].posPrev2!;
-          pos = this.#optimum[cur].backPrev2;
+        if (this.#optimum[curLen].prev1IsChar && this.#optimum[curLen].prev2) {
+          posPrev = this.#optimum[curLen].posPrev2!;
+          pos = this.#optimum[curLen].backPrev2;
           state = UpdateState_Rep(state);
         } else {
-          pos = this.#optimum[cur].backPrev;
+          pos = this.#optimum[curLen].backPrev;
           if (pos! < 4) {
             state = UpdateState_Rep(state);
           } else {
             state = UpdateState_Match(state);
           }
         }
-        const opt = this.#optimum[posPrev];
 
+        const opt = this.#optimum[posPrev];
         if (pos! < 4) {
           if (!pos) {
             this.#reps[0] = opt.backs0!;
             this.#reps[1] = opt.backs1!;
             this.#reps[2] = opt.backs2!;
             this.#reps[3] = opt.backs3!;
-          } else if (pos == 1) {
+          } else if (pos === 1) {
             this.#reps[0] = opt.backs1!;
             this.#reps[1] = opt.backs0!;
             this.#reps[2] = opt.backs2!;
             this.#reps[3] = opt.backs3!;
-          } else if (pos == 2) {
+          } else if (pos === 2) {
             this.#reps[0] = opt.backs2!;
             this.#reps[1] = opt.backs0!;
             this.#reps[2] = opt.backs1!;
@@ -871,124 +678,112 @@ export class LzmaEncoder {
         }
       }
 
-      this.#optimum[cur].state = state;
-      this.#optimum[cur].backs0 = this.#reps[0];
-      this.#optimum[cur].backs1 = this.#reps[1];
-      this.#optimum[cur].backs2 = this.#reps[2];
-      this.#optimum[cur].backs3 = this.#reps[3];
-      const curPrice = this.#optimum[cur].price;
+      this.#optimum[curLen].state = state;
+      this.#optimum[curLen].backs0 = this.#reps[0];
+      this.#optimum[curLen].backs1 = this.#reps[1];
+      this.#optimum[curLen].backs2 = this.#reps[2];
+      this.#optimum[curLen].backs3 = this.#reps[3];
+      const curPrice = this.#optimum[curLen].price!;
 
-      curByte = mf_.getIndexByte(-1);
-      matchByte = mf_.getIndexByte(-this.#reps[0] - 1 - 1);
+      const curByte = mf_.getIndexByte(-1);
+      const matchByte = mf_.getIndexByte(-1 - (this.#reps[0] + 1));
 
-      posState = pos_x & this.#posStateMask;
-      const curAnd1Price: CProbPrice = curPrice! +
-        PROB_PRICES[(this.#isMatch[(state << 4) + posState]) >>> 2] +
+      const posState = pos_x & this.#posStateMask;
+      const state2 = (state << kNumPosBitsMax) + posState;
+      const curAnd1Price: CProbPrice = curPrice +
+        getBitPrice(this.#isMatch[state2], 0) +
         this.#litenc.getSubCoder(pos_x, mf_.getIndexByte(-2))
           .getPrice(state >= 7, matchByte, curByte);
 
-      const nextOptimum = this.#optimum[cur + 1];
-      let nextIsChar = 0;
+      const nextOptimum = this.#optimum[curLen + 1];
+      let nextIsChar = false;
 
       if (curAnd1Price < nextOptimum.price!) {
         nextOptimum.price = curAnd1Price;
-        nextOptimum.posPrev = cur;
-        nextOptimum.backPrev = -1;
-        nextOptimum.prev1IsChar = false;
-        nextIsChar = 1;
+        nextOptimum.posPrev = curLen;
+        nextOptimum.MakeAsChar();
+        nextIsChar = true;
       }
 
-      matchPrice = curPrice! +
-        PROB_PRICES[(2048 - this.#isMatch[(state << 4) + posState]) >>> 2];
-
-      repMatchPrice = matchPrice +
-        PROB_PRICES[(2048 - this.#isRep[state]) >>> 2];
+      const matchPrice = curPrice + getBitPrice(this.#isMatch[state2], 1);
+      const repMatchPrice = matchPrice + getBitPrice(this.#isRep[state], 1);
 
       if (
         matchByte === curByte &&
-        !(nextOptimum.posPrev! < cur && !nextOptimum.backPrev)
+        !(nextOptimum.posPrev! < curLen && !nextOptimum.backPrev)
       ) {
         const shortRepPrice: CProbPrice = repMatchPrice +
-          PROB_PRICES[(this.#isRepG0[state]) >>> 2] +
-          PROB_PRICES[(this.#isRep0Long[(state << 4) + posState]) >>> 2];
+          getBitPrice(this.#isRepG0[state], 0) +
+          getBitPrice(this.#isRep0Long[state2], 0);
 
         if (shortRepPrice <= nextOptimum.price!) {
           nextOptimum.price = shortRepPrice;
-          nextOptimum.posPrev = cur;
-          nextOptimum.backPrev = 0;
-          nextOptimum.prev1IsChar = false;
-          nextIsChar = 1;
+          nextOptimum.posPrev = curLen;
+          nextOptimum.MakeAsShortRep();
+          nextIsChar = true;
         }
       }
 
-      let numAvailBytesFull = mf_.getNumAvailableBytes() + 1;
-      numAvailBytesFull = 0xFFF - cur < numAvailBytesFull
-        ? 0xFFF - cur
-        : numAvailBytesFull;
+      const numAvailBytesFull = Math.min(
+        kNumOpts - curLen - 1,
+        mf_.numAvailBytes + 1,
+      );
 
-      numAvailBytes = numAvailBytesFull;
-
+      let numAvailBytes = numAvailBytesFull;
       if (numAvailBytes < 2) continue;
-
       if (numAvailBytes > this.#numFastBytes) {
         numAvailBytes = this.#numFastBytes;
       }
 
       if (!nextIsChar && matchByte !== curByte) {
         const t_: CLen = Math.min(numAvailBytesFull - 1, this.#numFastBytes);
-        lenTest2 = mf_.getMatchLen(0, this.#reps[0], t_);
-
+        const lenTest2 = mf_.getMatchLen(0, this.#reps[0], t_);
         if (lenTest2 >= 2) {
           const state2 = UpdateState_Literal(state);
-          posStateNext = pos_x + 1 & this.#posStateMask;
-          nextRepMatchPrice = curAnd1Price +
-            PROB_PRICES[
-              (2048 - this.#isMatch[(state2 << 4) + posStateNext]) >>> 2
-            ] + PROB_PRICES[(2048 - this.#isRep[state2]) >>> 2];
+          const posStateNext = pos_x + 1 & this.#posStateMask;
+          const state22 = (state2 << kNumPosBitsMax) + posStateNext;
+          const nextRepMatchPrice = curAnd1Price +
+            getBitPrice(this.#isMatch[state22], 1) +
+            getBitPrice(this.#isRep[state2], 1);
 
-          offset = cur + 1 + lenTest2;
-
+          const offset = curLen + 1 + lenTest2;
           while (lenEnd < offset) {
             this.#optimum[lenEnd += 1].price = INFINITY_PRICE;
           }
 
           const price = this.#replenenc.getPrice(lenTest2 - 2, posStateNext);
-          curAndLenPrice = nextRepMatchPrice + price +
+          const curAndLenPrice = nextRepMatchPrice + price +
             this.#GetPureRepPrice(0, state2, posStateNext);
-          optimum = this.#optimum[offset];
-
+          const optimum = this.#optimum[offset];
           if (curAndLenPrice < optimum.price!) {
             optimum.price = curAndLenPrice;
-            optimum.posPrev = cur + 1;
+            optimum.posPrev = curLen + 1;
             optimum.backPrev = 0;
             optimum.prev1IsChar = true;
             optimum.prev2 = false;
           }
         }
       }
+
       let startLen = 2;
-
       for (let repIndex = 0; repIndex < 4; ++repIndex) {
-        lenTest = mf_.getMatchLen(-1, this.#reps[repIndex], numAvailBytes);
-
-        if (lenTest < 2) continue;
+        let lenTest = mf_.getMatchLen(-1, this.#reps[repIndex], numAvailBytes);
+        if (lenTest < kMatchMinLen) continue;
 
         const lenTestTemp = lenTest;
 
         do {
-          while (lenEnd < cur + lenTest) {
+          while (lenEnd < curLen + lenTest) {
             this.#optimum[lenEnd += 1].price = INFINITY_PRICE;
           }
 
           const price_0 = this.#replenenc.getPrice(lenTest - 2, posState);
-          curAndLenPrice = repMatchPrice + price_0 +
-            this.#GetPureRepPrice(repIndex as 0 | 1 | 2 | 3, state, posState);
-
-          optimum = this.#optimum[cur + lenTest];
-
+          const curAndLenPrice = repMatchPrice + price_0 +
+            this.#GetPureRepPrice(repIndex as RepIndex_, state, posState);
+          const optimum = this.#optimum[curLen + lenTest];
           if (curAndLenPrice < optimum.price!) {
             optimum.price = curAndLenPrice;
-            optimum.posPrev = cur;
+            optimum.posPrev = curLen;
             optimum.backPrev = repIndex;
             optimum.prev1IsChar = false;
           }
@@ -1005,20 +800,20 @@ export class LzmaEncoder {
             numAvailBytesFull - 1 - lenTest,
             this.#numFastBytes,
           );
-          lenTest2 = mf_.getMatchLen(lenTest, this.#reps[repIndex], t_);
-
+          const lenTest2 = mf_.getMatchLen(lenTest, this.#reps[repIndex], t_);
           if (lenTest2 >= 2) {
             let state2 = UpdateState_Rep(state);
-            posStateNext = pos_x + lenTest & this.#posStateMask;
+            let posStateNext = pos_x + lenTest & this.#posStateMask;
+            let state22 = (state2 << kNumPosBitsMax) + posStateNext;
+
             const price_1: CProbPrice = this.#replenenc
               .getPrice(lenTest - 2, posState);
-            curAndLenCharPrice = repMatchPrice + price_1 +
+            const curAndLenCharPrice = repMatchPrice + price_1 +
               this.#GetPureRepPrice(
-                repIndex as 0 | 1 | 2 | 3,
+                repIndex as RepIndex_,
                 state,
                 posState,
-              ) +
-              PROB_PRICES[(this.#isMatch[(state2 << 4) + posStateNext]) >>> 2] +
+              ) + getBitPrice(this.#isMatch[state22], 0) +
               this.#litenc.getSubCoder(
                 pos_x + lenTest,
                 mf_.getIndexByte(lenTest - 1 - 1),
@@ -1030,33 +825,30 @@ export class LzmaEncoder {
 
             state2 = UpdateState_Literal(state2);
             posStateNext = pos_x + lenTest + 1 & this.#posStateMask;
+            state22 = (state2 << kNumPosBitsMax) + posStateNext;
 
-            nextMatchPrice = curAndLenCharPrice + PROB_PRICES[
-              (2048 - this.#isMatch[(state2 << 4) + posStateNext]) >>> 2
-            ];
+            const nextMatchPrice = curAndLenCharPrice +
+              getBitPrice(this.#isMatch[state22], 1);
+            const nextRepMatchPrice = nextMatchPrice +
+              getBitPrice(this.#isRep[state2], 1);
 
-            nextRepMatchPrice = nextMatchPrice +
-              PROB_PRICES[(2048 - this.#isRep[state2]) >>> 2];
-
-            offset = lenTest + 1 + lenTest2;
-
-            while (lenEnd < cur + offset) {
+            const offset = lenTest + 1 + lenTest2;
+            while (lenEnd < curLen + offset) {
               this.#optimum[lenEnd += 1].price = INFINITY_PRICE;
             }
 
             const price_2: CProbPrice = this.#replenenc
               .getPrice(lenTest2 - 2, posStateNext);
-            curAndLenPrice = nextRepMatchPrice + price_2 +
+            const curAndLenPrice = nextRepMatchPrice + price_2 +
               this.#GetPureRepPrice(0, state2, posStateNext);
-            optimum = this.#optimum[cur + offset];
-
+            const optimum = this.#optimum[curLen + offset];
             if (curAndLenPrice < optimum.price!) {
               optimum.price = curAndLenPrice;
-              optimum.posPrev = cur + lenTest + 1;
+              optimum.posPrev = curLen + lenTest + 1;
               optimum.backPrev = 0;
               optimum.prev1IsChar = true;
               optimum.prev2 = true;
-              optimum.posPrev2 = cur;
+              optimum.posPrev2 = curLen;
               optimum.backPrev2 = repIndex;
             }
           }
@@ -1071,24 +863,23 @@ export class LzmaEncoder {
       }
 
       if (newLen >= startLen) {
-        normalMatchPrice = matchPrice + PROB_PRICES[(this.#isRep[state]) >>> 2];
+        normalMatchPrice = matchPrice + getBitPrice(this.#isRep[state], 0);
 
-        while (lenEnd < cur + newLen) {
+        while (lenEnd < curLen + newLen) {
           this.#optimum[lenEnd += 1].price = INFINITY_PRICE;
         }
-        let offs = 0;
 
+        let offs = 0;
         while (startLen > md_[offs]) offs += 2;
 
-        for (lenTest = startLen;; lenTest += 1) {
-          const curBack: DictSize = md_[offs + 1];
-          curAndLenPrice = normalMatchPrice +
+        for (let lenTest = startLen;; lenTest += 1) {
+          const curBack: CDist = md_[offs + 1];
+          let curAndLenPrice = normalMatchPrice +
             this.#GetPosLenPrice(curBack, lenTest, posState);
-          optimum = this.#optimum[cur + lenTest];
-
+          const optimum = this.#optimum[curLen + lenTest];
           if (curAndLenPrice < optimum.price!) {
             optimum.price = curAndLenPrice;
-            optimum.posPrev = cur;
+            optimum.posPrev = curLen;
             optimum.backPrev = curBack + 4;
             optimum.prev1IsChar = false;
           }
@@ -1099,35 +890,34 @@ export class LzmaEncoder {
                 numAvailBytesFull - 1 - lenTest,
                 this.#numFastBytes,
               );
-              lenTest2 = mf_.getMatchLen(lenTest, curBack, t_);
-
+              const lenTest2 = mf_.getMatchLen(lenTest, curBack, t_);
               if (lenTest2 >= 2) {
                 let state2 = UpdateState_Match(state);
-                posStateNext = pos_x + lenTest & this.#posStateMask;
+                let posStateNext = pos_x + lenTest & this.#posStateMask;
+                let state22 = (state2 << kNumPosBitsMax) + posStateNext;
 
-                curAndLenCharPrice = curAndLenPrice + PROB_PRICES[
-                  (this.#isMatch[(state2 << 4) + posStateNext]) >>> 2
-                ] + this.#litenc.getSubCoder(
-                  pos_x + lenTest,
-                  mf_.getIndexByte(lenTest - 1 - 1),
-                ).getPrice(
-                  true,
-                  mf_.getIndexByte(lenTest - (curBack + 1) - 1),
-                  mf_.getIndexByte(lenTest - 1),
-                );
+                const curAndLenCharPrice = curAndLenPrice +
+                  getBitPrice(this.#isMatch[state22], 0) +
+                  this.#litenc.getSubCoder(
+                    pos_x + lenTest,
+                    mf_.getIndexByte(lenTest - 1 - 1),
+                  ).getPrice(
+                    true,
+                    mf_.getIndexByte(lenTest - (curBack + 1) - 1),
+                    mf_.getIndexByte(lenTest - 1),
+                  );
 
                 state2 = UpdateState_Literal(state2);
                 posStateNext = pos_x + lenTest + 1 & this.#posStateMask;
+                state22 = (state2 << kNumPosBitsMax) + posStateNext;
 
-                nextMatchPrice = curAndLenCharPrice + PROB_PRICES[
-                  (2048 - this.#isMatch[(state2 << 4) + posStateNext]) >>> 2
-                ];
+                const nextMatchPrice = curAndLenCharPrice +
+                  getBitPrice(this.#isMatch[state22], 1);
+                const nextRepMatchPrice = nextMatchPrice +
+                  getBitPrice(this.#isRep[state2], 1);
 
-                nextRepMatchPrice = nextMatchPrice +
-                  PROB_PRICES[(2048 - this.#isRep[state2]) >>> 2];
-                offset = lenTest + 1 + lenTest2;
-
-                while (lenEnd < cur + offset) {
+                const offset = lenTest + 1 + lenTest2;
+                while (lenEnd < curLen + offset) {
                   this.#optimum[lenEnd += 1].price = INFINITY_PRICE;
                 }
 
@@ -1135,21 +925,20 @@ export class LzmaEncoder {
                   .getPrice(lenTest2 - 2, posStateNext);
                 curAndLenPrice = nextRepMatchPrice + price_3 +
                   this.#GetPureRepPrice(0, state2, posStateNext);
-                optimum = this.#optimum[cur + offset];
-
+                const optimum = this.#optimum[curLen + offset];
                 if (curAndLenPrice < optimum.price!) {
                   optimum.price = curAndLenPrice;
-                  optimum.posPrev = cur + lenTest + 1;
+                  optimum.posPrev = curLen + lenTest + 1;
                   optimum.backPrev = 0;
                   optimum.prev1IsChar = true;
                   optimum.prev2 = true;
-                  optimum.posPrev2 = cur;
+                  optimum.posPrev2 = curLen;
                   optimum.backPrev2 = curBack + 4;
                 }
               }
             }
-            offs += 2;
 
+            offs += 2;
             if (offs === numDistPairs) break;
           }
         }
@@ -1160,48 +949,67 @@ export class LzmaEncoder {
     return 1;
   }
 
-  #GetPosLenPrice(pos: DictSize, len: number, posState: number): CProbPrice {
-    let price: CProbPrice;
-    const lenToPosState = getLenToPosState(len - kMatchMinLen);
+  #GetPosSlot2(pos: CDist): uint8 {
+    if (pos < 0x2_0000) return G_FAST_POS[pos >> 6] + 12;
+    if (pos < 0x800_0000) return G_FAST_POS[pos >> 16] + 32;
 
-    if (pos < 128) {
-      price = this.#distancesPrices[lenToPosState * 128 + pos];
-    } else {
-      const position = (lenToPosState << 6) + this.GetPosSlot2(pos);
-      price = this.#posSlotPrices[position] + this.#alignPrices[pos & 0xf];
-    }
-
-    return price + this.#lenenc.getPrice(len - 2, posState);
+    return G_FAST_POS[pos >> 26] + 52;
   }
 
+  /**
+   * @const @param pos_x
+   * @const @param len_x
+   * @const @param posState_x
+   */
+  #GetPosLenPrice(pos_x: CDist, len_x: CLen, posState_x: CState): CProbPrice {
+    let price: CProbPrice;
+    const lenToPosState = getLenToPosState(len_x - kMatchMinLen);
+
+    if (pos_x < 0x80) {
+      price = this.#distancesPrices[lenToPosState * 0x80 + pos_x];
+    } else {
+      const position = (lenToPosState << 6) + this.#GetPosSlot2(pos_x);
+      price = this.#posSlotPrices[position] + this.#alignPrices[pos_x & 0xF];
+    }
+
+    return price + this.#lenenc.getPrice(len_x - kMatchMinLen, posState_x);
+  }
+
+  /**
+   * @const @param repIndex_x
+   * @const @param state_x
+   * @const @param posState_x
+   */
   #GetPureRepPrice(
-    repIndex: 0 | 1 | 2 | 3,
-    state: number,
-    posState: number,
+    repIndex_x: RepIndex_,
+    state_x: CState,
+    posState_x: CState,
   ): CProbPrice {
     let price: CProbPrice;
 
-    if (repIndex === 0) {
-      price = PROB_PRICES[(this.#isRepG0[state]) >>> 2];
-      price +=
-        PROB_PRICES[0x800 - this.#isRep0Long[(state << 4) + posState] >>> 2];
+    if (repIndex_x === 0) {
+      price = getBitPrice(this.#isRepG0[state_x], 0);
+      price += getBitPrice(this.#isRep0Long[(state_x << 4) + posState_x], 1);
     } else {
-      price = PROB_PRICES[(0x800 - this.#isRepG0[state]) >>> 2];
-      if (repIndex == 1) {
-        price += PROB_PRICES[(this.#isRepG1[state]) >>> 2];
+      price = getBitPrice(this.#isRepG0[state_x], 1);
+      if (repIndex_x === 1) {
+        price += getBitPrice(this.#isRepG1[state_x], 0);
       } else {
-        price += PROB_PRICES[(0x800 - this.#isRepG1[state]) >>> 2];
-        price += getBitPrice(this.#isRepG2[state], (repIndex - 2) as 0 | 1);
+        price += getBitPrice(this.#isRepG1[state_x], 1);
+        price += getBitPrice(this.#isRepG2[state_x], (repIndex_x - 2) as 0 | 1);
       }
     }
 
     return price;
   }
 
-  #GetRepLen1Price(posState: number): CProbPrice {
-    const repG0Price = PROB_PRICES[(this.#isRepG0[this.#state]) >>> 2];
-    const rep0LongPrice =
-      PROB_PRICES[this.#isRep0Long[(this.#state << 4) + posState] >>> 2];
+  /** @const @param posState_x */
+  #GetRepLen1Price(posState_x: CState): CProbPrice {
+    const repG0Price = getBitPrice(this.#isRepG0[this.#state], 0);
+    const rep0LongPrice = getBitPrice(
+      this.#isRep0Long[(this.#state << kNumPosBitsMax) + posState_x],
+      0,
+    );
 
     return repG0Price + rep0LongPrice;
   }
@@ -1217,20 +1025,19 @@ export class LzmaEncoder {
   /**
    * Modify
    *    - `#numDistPairs`, `#extraBufofs`
-   *    - {@linkcode _GetMatches()}
    */
   #ReadMatchDistances(): CLen {
     let lenRes: CLen = 0;
 
-    this.#numDistPairs = this._GetMatches();
+    this.#numDistPairs = this.#matchFinder.GetMatches();
     if (this.#numDistPairs > 0) {
-      lenRes = this.#matchDistances[this.#numDistPairs - 2];
+      lenRes = this.#matchFinder.matchDistances[this.#numDistPairs - 2];
 
       if (lenRes === this.#numFastBytes) {
         lenRes += this.#matchFinder.getMatchLen(
           lenRes - 1,
-          this.#matchDistances[this.#numDistPairs - 1],
-          273 - lenRes,
+          this.#matchFinder.matchDistances[this.#numDistPairs - 1],
+          kMatchMaxLen - lenRes,
         );
       }
     }
@@ -1240,6 +1047,38 @@ export class LzmaEncoder {
     return lenRes;
   }
 
+  #encodeLiteral(): void {
+    const curByte = this.#matchFinder.getIndexByte(-this.#extraBufofs);
+
+    const probs =
+      this.#litenc.getSubCoder(this.#nowPos48, this.#prevByte).decoders;
+    if (this.#state < 7) {
+      this.#RangeEnc.encodeBits(probs, 8, curByte);
+    } else {
+      const matchByte = this.#matchFinder.getIndexByte(
+        -this.#extraBufofs - (this.#repDistances[0] + 1),
+      );
+
+      let same = true, m_ = 1;
+      for (let i = 8; i--;) {
+        const bit = ((curByte >> i) & 1) as 0 | 1;
+        let state = m_;
+
+        if (same) {
+          const matchBit = (matchByte >> i) & 1;
+          state += (1 + matchBit) << 8;
+          same = matchBit === bit;
+        }
+
+        this.#RangeEnc.encodeBit(probs, state, bit);
+        m_ = m_ << 1 | bit;
+      }
+    }
+    this.#state = UpdateState_Literal(this.#state);
+
+    this.#prevByte = curByte;
+  }
+
   #ReleaseMFStream(): void {
     if (this.#needReleaseMFStream) {
       this.#matchFinder.stream = null;
@@ -1247,24 +1086,19 @@ export class LzmaEncoder {
     }
   }
 
-  GetPosSlot2(pos: number): number {
-    if (pos < 0x2_0000) return G_FAST_POS[pos >> 6] + 12;
-    if (pos < 0x800_0000) return G_FAST_POS[pos >> 16] + 32;
+  #Flush(): void {
+    this.#ReleaseMFStream();
+    this.#writeEndMarker(this.#nowPos48 & this.#posStateMask);
 
-    return G_FAST_POS[pos >> 26] + 52;
-  }
-
-  #MakeAsChar(optimum: Optimum_): void {
-    optimum.backPrev = -1;
-    optimum.prev1IsChar = false;
-  }
-
-  #MakeAsShortRep(optimum: Optimum_): void {
-    optimum.backPrev = 0;
-    optimum.prev1IsChar = false;
+    for (let i = 0; i < 5; ++i) {
+      this.#RangeEnc.shiftLow();
+    }
   }
 
   codeOneBlock(): void {
+    const mf_ = this.#matchFinder;
+    const re_ = this.#RangeEnc;
+
     this.processedInSize = 0;
     //jjjj TOCLEANUP
     // this.#processedOutSize = 0;
@@ -1272,8 +1106,8 @@ export class LzmaEncoder {
     const progressPosValuePrev = this.#nowPos48;
 
     if (this.inStream) {
-      this.#matchFinder.stream = this.inStream;
-      this.#matchFinder.Init();
+      mf_.stream = this.inStream;
+      mf_.Init();
 
       this.#needReleaseMFStream = true;
       this.inStream = null;
@@ -1283,34 +1117,26 @@ export class LzmaEncoder {
     this.#blockFinished = true;
 
     if (this.#nowPos48 === 0) {
-      if (this.#matchFinder.getNumAvailableBytes() === 0) {
+      if (mf_.numAvailBytes === 0) {
         this.#Flush();
         return;
       }
 
       this.#ReadMatchDistances();
-      const posState: CState = this.#nowPos48 & this.#posStateMask;
 
-      this.RangeEnc.encodeBit(
+      const posState: CState = this.#nowPos48 & this.#posStateMask;
+      re_.encodeBit(
         this.#isMatch,
         (this.#state << kNumPosBitsMax) + posState,
         0,
       );
+      this.#encodeLiteral();
 
-      this.#state = UpdateState_Literal(this.#state);
-      const curByte = this.#matchFinder.getIndexByte(-this.#extraBufofs);
-
-      this.encodeLiteral(
-        this.#litenc.getSubCoder(this.#nowPos48, this.#prevByte),
-        curByte,
-      );
-
-      this.#prevByte = curByte;
       this.#extraBufofs -= 1;
       this.#nowPos48++;
     }
 
-    if (!this.#matchFinder.getNumAvailableBytes()) {
+    if (mf_.numAvailBytes === 0) {
       this.#Flush();
       return;
     }
@@ -1319,62 +1145,40 @@ export class LzmaEncoder {
       const len: CLen = this.#GetOptimum(this.#nowPos48);
       let pos = this.#backRes;
       const posState = this.#nowPos48 & this.#posStateMask;
-      const complexState = (this.#state << 4) + posState;
+      const complexState = (this.#state << kNumPosBitsMax) + posState;
 
-      if (len == 1 && pos == -1) {
-        this.RangeEnc.encodeBit(this.#isMatch, complexState, 0);
-
-        const curByte = this.#matchFinder.getIndexByte(-this.#extraBufofs);
-
-        const subCoder = this.#litenc.getSubCoder(
-          this.#nowPos48,
-          this.#prevByte,
-        );
-
-        if (this.#state < 7) {
-          this.encodeLiteral(subCoder, curByte);
-        } else {
-          const matchByte = this.#matchFinder.getIndexByte(
-            -this.#repDistances[0] - 1 - this.#extraBufofs,
-          );
-
-          this.encodeMatched(subCoder, matchByte, curByte);
-        }
-        this.#prevByte = curByte;
-        this.#state = UpdateState_Literal(this.#state);
+      if (len === 1 && pos === -1) {
+        re_.encodeBit(this.#isMatch, complexState, 0);
+        this.#encodeLiteral();
       } else {
-        this.RangeEnc.encodeBit(this.#isMatch, complexState, 1);
+        re_.encodeBit(this.#isMatch, complexState, 1);
         let distance;
         if (pos < 4) {
-          this.RangeEnc.encodeBit(this.#isRep, this.#state, 1);
+          re_.encodeBit(this.#isRep, this.#state, 1);
 
           if (!pos) {
-            this.RangeEnc.encodeBit(this.#isRepG0, this.#state, 0);
+            re_.encodeBit(this.#isRepG0, this.#state, 0);
 
-            if (len == 1) {
-              this.RangeEnc.encodeBit(this.#isRep0Long, complexState, 0);
+            if (len === 1) {
+              re_.encodeBit(this.#isRep0Long, complexState, 0);
             } else {
-              this.RangeEnc.encodeBit(this.#isRep0Long, complexState, 1);
+              re_.encodeBit(this.#isRep0Long, complexState, 1);
             }
           } else {
-            this.RangeEnc.encodeBit(this.#isRepG0, this.#state, 1);
+            re_.encodeBit(this.#isRepG0, this.#state, 1);
 
-            if (pos == 1) {
-              this.RangeEnc.encodeBit(this.#isRepG1, this.#state, 0);
+            if (pos === 1) {
+              re_.encodeBit(this.#isRepG1, this.#state, 0);
             } else {
-              this.RangeEnc.encodeBit(this.#isRepG1, this.#state, 1);
-              this.RangeEnc.encodeBit(
-                this.#isRepG2,
-                this.#state,
-                (pos - 2) as 0 | 1,
-              );
+              re_.encodeBit(this.#isRepG1, this.#state, 1);
+              re_.encodeBit(this.#isRepG2, this.#state, (pos - 2) as 0 | 1);
             }
           }
 
-          if (len == 1) {
+          if (len === 1) {
             this.#state = UpdateState_ShortRep(this.#state);
           } else {
-            this.#replenenc.encode(len - 2, posState, this.RangeEnc);
+            this.#replenenc.encode(len - 2, posState, re_);
             this.#state = UpdateState_Rep(this.#state);
           }
           distance = this.#repDistances[pos];
@@ -1385,33 +1189,35 @@ export class LzmaEncoder {
             this.#repDistances[0] = distance;
           }
         } else {
-          this.RangeEnc.encodeBit(this.#isRep, this.#state, 0);
+          re_.encodeBit(this.#isRep, this.#state, 0);
 
           this.#state = UpdateState_Match(this.#state);
-          this.#lenenc.encode(len - 2, posState, this.RangeEnc);
+          this.#lenenc.encode(len - 2, posState, re_);
 
           pos -= 4;
           const posSlot = getPosSlot(pos);
           const lenToPosState = getLenToPosState(len - kMatchMinLen);
-          this.RangeEnc.encodeBitTree(
-            this.#posSlotEncoder[lenToPosState],
-            posSlot,
-          );
+          re_.encodeBitTree(this.#posSlotEncoder[lenToPosState], posSlot);
 
           if (posSlot >= 4) {
             const footerBits = (posSlot >> 1) - 1;
             const baseVal = (2 | (posSlot & 1)) << footerBits;
             const posReduced = pos - baseVal;
 
-            if (posSlot < 0x0E) {
-              this.reverseEncodeRange(
-                baseVal - posSlot - 1,
+            if (posSlot < 14) {
+              re_.encodeReverseBits(
+                this.#posEncoders,
                 footerBits,
                 posReduced,
+                baseVal - posSlot - 1,
               );
             } else {
-              this.RangeEnc.encodeDirectBits(posReduced >> 4, footerBits - 4);
-              this.reverseEncode(posReduced & 0xF);
+              re_.encodeDirectBits(posReduced >> 4, footerBits - 4);
+              re_.encodeReverseBits(
+                this.#posAlignEncoder.Probs,
+                this.#posAlignEncoder.NumBits,
+                posReduced & 0xF,
+              );
               this.#alignPriceCount += 1;
             }
           }
@@ -1424,33 +1230,32 @@ export class LzmaEncoder {
           this.#matchPriceCount += 1;
         }
 
-        this.#prevByte = this.#matchFinder
-          .getIndexByte(len - 1 - this.#extraBufofs);
+        this.#prevByte = mf_.getIndexByte(len - 1 - this.#extraBufofs);
       }
 
       this.#extraBufofs -= len;
       this.#nowPos48 += len;
 
-      if (!this.#extraBufofs) {
+      if (this.#extraBufofs === 0) {
         if (this.#matchPriceCount >= 128) {
           this.#fillDistancesPrices();
         }
 
-        if (this.#alignPriceCount >= 0x10) {
+        if (this.#alignPriceCount >= 16) {
           this.#fillAlignPrices();
         }
 
         this.processedInSize = this.#nowPos48;
         //jjjj TOCLEANUP
         // this.#processedOutSize = 4 +
-        //   this.RangeEnc.cacheSize + this.RangeEnc.pos;
+        //   re_.cacheSize + re_.pos;
 
-        if (!this.#matchFinder.getNumAvailableBytes()) {
+        if (mf_.numAvailBytes === 0) {
           this.#Flush();
           return;
         }
 
-        if (this.#nowPos48 - progressPosValuePrev >= 0x1000) {
+        if (this.#nowPos48 - progressPosValuePrev >= LZMA_DIC_MIN) {
           this.#blockFinished = false;
           this.finished = false;
           return;
@@ -1461,7 +1266,7 @@ export class LzmaEncoder {
 
   ReleaseStreams(): void {
     this.#ReleaseMFStream();
-    this.RangeEnc.stream = null;
+    this.#RangeEnc.stream = null;
   }
 }
 /*80--------------------------------------------------------------------------*/

@@ -1,7 +1,10 @@
 /** 80**************************************************************************
  * Ref. [[lzma1]/src/lzma.test.ts](https://github.com/xseman/lzma1/blob/master/src/lzma.test.ts)
+ *    * Remove helper functions `bytesToHexString()`, `hexStringToUint8Array()`
+ *    * Remove `describe("buffer handling")`
+ *    * Fix "large repetitive data to trigger MoveBlock"
  *
- * @module lzma1/lzma_test
+ * @module lib/7z/lzma/Lzma_test.ts
  * @license MIT
  ******************************************************************************/
 
@@ -121,16 +124,14 @@ describe("LZMA class direct usage", () => {
 describe("large data compression", () => {
   it("should handle large string input", () => {
     const raw = "a".repeat(10_000);
-    /* 3_152_731 = 0x30_1b5b =
-    (0x20_0000 + 0x1000) + (0x10_09c9) + (0x80 + 274) */
-    const enc = compressString(raw);
+    const enc = compressString(raw); // 3229
     const dec = decompressString(enc);
     assertEquals(dec, raw);
   });
 
   it("should compress repeated data efficiently", () => {
     const raw = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".repeat(1000);
-    const enc = compressString(raw);
+    const enc = compressString(raw, 1);
 
     /* Verify compression ratio is good (compressed size should be much smaller) */
     assertLess(enc.length, raw.length / 5);
@@ -294,7 +295,7 @@ describe("Internal algorithm stress tests", () => {
     const pattern = "ABCD".repeat(32); // 128 byte pattern
     const raw = pattern.repeat(Math.ceil(largeSize / pattern.length));
 
-    const enc = compressString(raw);
+    const enc = compressString(raw, 1); // 3231
     const dec = decompressString(enc);
     assertEquals(dec, raw);
   });
@@ -303,6 +304,11 @@ describe("Internal algorithm stress tests", () => {
     const raw =
       "This is a test string that will be compressed at different levels to ensure all code paths are exercised."
         .repeat(100);
+    // console.log(raw.length); // 10_500
+
+    // const enc = compressString(raw, 1); // 3230
+    // const dec = decompressString(enc);
+    // assertEquals(dec, raw);
 
     for (let mode = 1 as const; mode <= 9; ++mode) {
       const enc = compressString(raw, mode);

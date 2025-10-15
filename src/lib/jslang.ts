@@ -308,8 +308,8 @@ declare global {
     apxGE(f0: number, f1: number): boolean;
 
     /**
-     * [min,max]
-     * ! [min,max) normaally, but could achieve `max` because of `Math.round()`.
+     * [min,max]\
+     * ![min,max) normaally, but could achieve `max` because of `Math.round()`.
      */
     getRandom(max: number, min?: number, fixt?: uint): number;
 
@@ -718,9 +718,7 @@ Date.now_1 = () => {
 
 declare global {
   interface Math {
-    /**
-     * If `min > max`, `min` has a higher priority than `max`.
-     */
+    /** If `min > max`, `min` has a higher priority than `max`. */
     clamp(min: number, val: number, max: number): number;
 
     // minn( ...values:(number|bigint)[] ):number|bigint;
@@ -779,11 +777,11 @@ WritableStream.prototype[Symbol.asyncDispose] = async function (this) {
 /*80--------------------------------------------------------------------------*/
 
 /**
- * class X extends mix( Y, Z )
- * ! Should always companion with an interface declaration
+ * class X extends mix( Y, Z )\
+ * !Should always companion with an interface declaration
  *
  * @param mixins_x
- *  Last element has the highest precedence, and so on.
+ *    Last element has the highest precedence, and so on.
  */
 export function mix<C extends Constructor | AbstractConstructor>(
   Base_x: C,

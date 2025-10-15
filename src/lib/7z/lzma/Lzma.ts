@@ -10,7 +10,7 @@ import type { uint, uint8 } from "@fe-lib/alias.ts";
 import "@fe-lib/jslang.ts";
 import { decodeABV, encodeStr } from "@fe-lib/util/string.ts";
 import { MAX_UINT48 } from "./alias.ts";
-import { DecoderChunker, EncoderChunker } from "./chunker.ts";
+import { DecoderChunker, EncoderChunker } from "./CoderChunker.ts";
 import { LzmaDecoder } from "./LzmaDecoder.ts";
 import { LzmaEncoder } from "./LzmaEncoder.ts";
 import type { BaseStream, BufferWithCount } from "./streams.ts";
@@ -31,15 +31,15 @@ export type CompressionMode = keyof typeof MODES;
 
 /** Compression modes */
 export const MODES = {
-  1: { searchDepth: 0x10, filterStrength: 0x40, matchFinderType: false },
-  2: { searchDepth: 0x14, filterStrength: 0x40, matchFinderType: false },
-  3: { searchDepth: 0x13, filterStrength: 0x40, matchFinderType: true },
-  4: { searchDepth: 0x14, filterStrength: 0x40, matchFinderType: true },
-  5: { searchDepth: 0x15, filterStrength: 0x80, matchFinderType: true },
-  6: { searchDepth: 0x16, filterStrength: 0x80, matchFinderType: true },
-  7: { searchDepth: 0x17, filterStrength: 0x80, matchFinderType: true },
-  8: { searchDepth: 0x18, filterStrength: 0xFF, matchFinderType: true },
-  9: { searchDepth: 0x19, filterStrength: 0xFF, matchFinderType: true },
+  1: { searchDepth: 16, filterStrength: 0x40, matchFinderType: false },
+  2: { searchDepth: 20, filterStrength: 0x40, matchFinderType: false },
+  3: { searchDepth: 19, filterStrength: 0x40, matchFinderType: true },
+  4: { searchDepth: 20, filterStrength: 0x40, matchFinderType: true },
+  5: { searchDepth: 21, filterStrength: 0x80, matchFinderType: true },
+  6: { searchDepth: 22, filterStrength: 0x80, matchFinderType: true },
+  7: { searchDepth: 23, filterStrength: 0x80, matchFinderType: true },
+  8: { searchDepth: 24, filterStrength: 0xFF, matchFinderType: true },
+  9: { searchDepth: 25, filterStrength: 0xFF, matchFinderType: true },
 } as const;
 /*64----------------------------------------------------------*/
 
@@ -145,7 +145,7 @@ export class Lzma {
 
     this.#encoder.Create_2();
 
-    this.#encoder.RangeEnc.stream = this.#encctx.output;
+    this.#encoder.stream = this.#encctx.output;
     this.#encoder.Init_2();
 
     this.#encctx.chunker.alive = true;
@@ -207,7 +207,7 @@ export class Lzma {
       this.#encctx.len_0 = tmp_length > MAX_UINT48 ? -1 : tmp_length;
     }
 
-    this.#decoder.RangeDec.stream = input_x;
+    this.#decoder.stream = input_x;
     this.#decoder.OutWindow.flush();
     this.#decoder.OutWindow.stream = this.#decctx.output;
     this.#decoder.Init();
