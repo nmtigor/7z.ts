@@ -8,15 +8,17 @@
 
 import type { int, uint, uint32, uint8 } from "@fe-lib/alias.ts";
 import "@fe-lib/jslang.ts";
-import type { CDist, CLen, CProb, CProbPrice, CState } from "./alias.ts";
+import type { CDist, CLen, CProb, CProbPrice, CState, Mode } from "./alias.ts";
 import {
   INFINITY_PRICE,
+  kAlignTableSize,
   kMatchMaxLen,
   kMatchMinLen,
   kNumAlignBits,
   kNumLenToPosStates,
   kNumOpts,
   kNumPosBitsMax,
+  kNumPosSlotBits,
   kNumStates,
   LZMA_DIC_MIN,
   MATCH_DECODERS_SIZE,
@@ -24,10 +26,9 @@ import {
 } from "./alias.ts";
 import { LenEncoder } from "./LenCoder.ts";
 import { LitEncoder } from "./LitCoder.ts";
-import type { Mode } from "./Lzma.ts";
+import type { LzmaEncodeStream } from "./LzmaEncodeStream.ts";
 import { MatchFinder } from "./MatchFinder.ts";
 import { RangeEncoder } from "./RangeEncoder.ts";
-import type { BaseStream, BufferWithCount } from "./streams.ts";
 import {
   BitTree,
   G_FAST_POS,
@@ -118,7 +119,7 @@ export class LzmaEncoder {
   #optimumEndIndex: uint = 0;
   #optimumCurIndex: uint = 0;
   /** correct `#pos` to the first not encoded position  */
-  #extraBufofs: int = 0;
+  #extraPos48: int = 0;
   /* ~ */
 
   /* Dictionary and match finding */
@@ -144,8 +145,10 @@ export class LzmaEncoder {
   /* ~ */
 
   /* Stream and processing state */
-  #needReleaseMFStream = false;
-  inStream: BaseStream | null = null;
+  #inStream: LzmaEncodeStream | null = null;
+  set inStream(_x: LzmaEncodeStream) {
+    this.#inStream = _x;
+  }
   #blockFinished = false;
   #nowPos48: uint = 0;
   /* ~ */
@@ -156,8 +159,8 @@ export class LzmaEncoder {
   /* ~ */
 
   readonly #RangeEnc = new RangeEncoder();
-  set stream(_x: BufferWithCount) {
-    this.#RangeEnc.stream = _x;
+  set outStream(_x: LzmaEncodeStream) {
+    this.#RangeEnc.outStream = _x;
   }
 
   /* Bit model arrays for different types of encoding decisions */
@@ -172,7 +175,7 @@ export class LzmaEncoder {
   /* Position and alignment encoders */
   readonly #posSlotEncoder = Array.from(
     { length: kNumLenToPosStates },
-    () => new BitTree(6),
+    () => new BitTree(kNumPosSlotBits),
   );
   readonly #posAlignEncoder = new BitTree(kNumAlignBits);
   readonly #posEncoders = Array.mock<CProb>(POS_CODERS_SIZE);
@@ -195,7 +198,7 @@ export class LzmaEncoder {
   readonly #posSlotPrices: CProbPrice[] = [];
   /** `length < 512` */
   readonly #distancesPrices: CProbPrice[] = [];
-  readonly #alignPrices = Array.mock<CProbPrice>(1 << kNumAlignBits);
+  readonly #alignPrices = Array.mock<CProbPrice>(kAlignTableSize);
   #matchPriceCount: uint8 = 0;
   #alignPriceCount: uint8 = 0;
   /* ~ */
@@ -206,9 +209,11 @@ export class LzmaEncoder {
   /* ~ */
 
   /* Processing counters */
-  processedInSize: uint = 0;
-  //jjjj TOCLEANUP
-  // #processedOutSize = 0;
+  #processedInSize: uint = 0;
+  get processedInSize() {
+    return this.#processedInSize;
+  }
+
   finished = false;
   readonly properties = Array.mock<uint8>(5);
   readonly #tempPrices = Array.mock<CProbPrice>(128);
@@ -227,9 +232,6 @@ export class LzmaEncoder {
     for (let i = kNumOpts; i--;) {
       this.#optimum[i] = new Optimum_();
     }
-
-    //jjjj TOCLEANUP
-    // this.#RangeEnc.Init();
 
     this.#litenc.Init();
     this.InitDist();
@@ -330,7 +332,7 @@ export class LzmaEncoder {
    *    - `#alignPrices[i]`, `#alignPriceCount`
    */
   #fillAlignPrices(): void {
-    for (let i = 1 << kNumAlignBits; i--;) {
+    for (let i = kAlignTableSize; i--;) {
       this.#alignPrices[i] = reverseGetPrice(
         this.#posAlignEncoder.Probs,
         this.#posAlignEncoder.NumBits,
@@ -402,10 +404,8 @@ export class LzmaEncoder {
     let repMaxIndex = 0;
     for (let i = 0; i < 4; ++i) {
       this.#reps[i] = this.#repDistances[i];
-      //jjjj TOCLEANUP
-      // this.#repLens[i] = mf_.getMatchLen(-1, this.#reps[i], kMatchMaxLen);
       this.#repLens[i] = this.#matchFinder.getMatchLen(
-        -this.#extraBufofs,
+        -this.#extraPos48,
         this.#reps[i],
         kMatchMaxLen,
       );
@@ -450,8 +450,8 @@ export class LzmaEncoder {
     return this.#optimumCurIndex;
   }
 
-  /** @const pos_x */
-  #GetOptimum(pos_x: uint): CLen {
+  /** @const @param pos_x */
+  async #GetOptimum(pos_x: uint): Promise<CLen> {
     const mf_ = this.#matchFinder;
     const md_ = mf_.matchDistances;
 
@@ -469,7 +469,7 @@ export class LzmaEncoder {
       lenMain = this.#longestMatchLen;
       this.#longestMatchFound = false;
     } else {
-      lenMain = this.#ReadMatchDistances();
+      lenMain = await this.#ReadMatchDistances();
     }
 
     const numDistPairs = this.#numDistPairs;
@@ -480,22 +480,17 @@ export class LzmaEncoder {
       return 1;
     }
 
-    //jjjj TOCLEANUP
-    // if (numAvailBytes > kMatchMaxLen) {
-    //   numAvailBytes = kMatchMaxLen;
-    // }
-
     const repMaxIndex = this.#updateReps();
     if (this.#repLens[repMaxIndex] >= this.#numFastBytes) {
       this.#backRes = repMaxIndex;
       const lenRes: CLen = this.#repLens[repMaxIndex];
-      this.#MovePos(lenRes - 1);
+      await this.#MovePos(lenRes - 1);
       return lenRes;
     }
 
     if (lenMain >= this.#numFastBytes) {
       this.#backRes = md_[numDistPairs - 1] + 4;
-      this.#MovePos(lenMain - 1);
+      await this.#MovePos(lenMain - 1);
       return lenMain;
     }
 
@@ -598,7 +593,7 @@ export class LzmaEncoder {
     for (let curLen = 1;; ++curLen) {
       if (curLen === lenEnd) return this.#Backward(curLen);
 
-      let newLen: CLen = this.#ReadMatchDistances();
+      let newLen: CLen = await this.#ReadMatchDistances();
       let numDistPairs = this.#numDistPairs;
 
       if (newLen >= this.#numFastBytes) {
@@ -949,11 +944,12 @@ export class LzmaEncoder {
     return 1;
   }
 
-  #GetPosSlot2(pos: CDist): uint8 {
-    if (pos < 0x2_0000) return G_FAST_POS[pos >> 6] + 12;
-    if (pos < 0x800_0000) return G_FAST_POS[pos >> 16] + 32;
+  /** @const @param pos_x */
+  #GetPosSlot2(pos_x: CDist): uint8 {
+    if (pos_x < 0x2_0000) return G_FAST_POS[pos_x >> 6] + 12;
+    if (pos_x < 0x800_0000) return G_FAST_POS[pos_x >> 16] + 32;
 
-    return G_FAST_POS[pos >> 26] + 52;
+    return G_FAST_POS[pos_x >> 26] + 52;
   }
 
   /**
@@ -1015,21 +1011,21 @@ export class LzmaEncoder {
   }
 
   /** @const @param num_x */
-  #MovePos(num_x: CLen): void {
+  async #MovePos(num_x: CLen): Promise<void> {
     if (num_x > 0) {
-      this.#matchFinder.Skip(num_x);
-      this.#extraBufofs += num_x;
+      await this.#matchFinder.Skip(num_x);
+      this.#extraPos48 += num_x;
     }
   }
 
   /**
    * Modify
-   *    - `#numDistPairs`, `#extraBufofs`
+   *    - `#numDistPairs`, `#extraPos48`
    */
-  #ReadMatchDistances(): CLen {
+  async #ReadMatchDistances(): Promise<CLen> {
     let lenRes: CLen = 0;
 
-    this.#numDistPairs = this.#matchFinder.GetMatches();
+    this.#numDistPairs = await this.#matchFinder.GetMatches();
     if (this.#numDistPairs > 0) {
       lenRes = this.#matchFinder.matchDistances[this.#numDistPairs - 2];
 
@@ -1042,13 +1038,13 @@ export class LzmaEncoder {
       }
     }
 
-    this.#extraBufofs += 1;
+    this.#extraPos48 += 1;
 
     return lenRes;
   }
 
   #encodeLiteral(): void {
-    const curByte = this.#matchFinder.getIndexByte(-this.#extraBufofs);
+    const curByte = this.#matchFinder.getIndexByte(-this.#extraPos48);
 
     const probs =
       this.#litenc.getSubCoder(this.#nowPos48, this.#prevByte).decoders;
@@ -1056,7 +1052,7 @@ export class LzmaEncoder {
       this.#RangeEnc.encodeBits(probs, 8, curByte);
     } else {
       const matchByte = this.#matchFinder.getIndexByte(
-        -this.#extraBufofs - (this.#repDistances[0] + 1),
+        -this.#extraPos48 - (this.#repDistances[0] + 1),
       );
 
       let same = true, m_ = 1;
@@ -1079,15 +1075,7 @@ export class LzmaEncoder {
     this.#prevByte = curByte;
   }
 
-  #ReleaseMFStream(): void {
-    if (this.#needReleaseMFStream) {
-      this.#matchFinder.stream = null;
-      this.#needReleaseMFStream = false;
-    }
-  }
-
   #Flush(): void {
-    this.#ReleaseMFStream();
     this.#writeEndMarker(this.#nowPos48 & this.#posStateMask);
 
     for (let i = 0; i < 5; ++i) {
@@ -1095,22 +1083,19 @@ export class LzmaEncoder {
     }
   }
 
-  codeOneBlock(): void {
+  async codeOneBlock(): Promise<void> {
     const mf_ = this.#matchFinder;
     const re_ = this.#RangeEnc;
 
-    this.processedInSize = 0;
-    //jjjj TOCLEANUP
-    // this.#processedOutSize = 0;
+    this.#processedInSize = 0;
     this.finished = true;
     const progressPosValuePrev = this.#nowPos48;
 
-    if (this.inStream) {
-      mf_.stream = this.inStream;
-      mf_.Init();
+    if (this.#inStream) {
+      mf_.inStream = this.#inStream;
+      await mf_.Init();
 
-      this.#needReleaseMFStream = true;
-      this.inStream = null;
+      this.#inStream = null;
     }
 
     if (this.#blockFinished) return;
@@ -1122,7 +1107,7 @@ export class LzmaEncoder {
         return;
       }
 
-      this.#ReadMatchDistances();
+      await this.#ReadMatchDistances();
 
       const posState: CState = this.#nowPos48 & this.#posStateMask;
       re_.encodeBit(
@@ -1132,7 +1117,7 @@ export class LzmaEncoder {
       );
       this.#encodeLiteral();
 
-      this.#extraBufofs -= 1;
+      this.#extraPos48 -= 1;
       this.#nowPos48++;
     }
 
@@ -1142,7 +1127,7 @@ export class LzmaEncoder {
     }
 
     while (1) {
-      const len: CLen = this.#GetOptimum(this.#nowPos48);
+      const len: CLen = await this.#GetOptimum(this.#nowPos48);
       let pos = this.#backRes;
       const posState = this.#nowPos48 & this.#posStateMask;
       const complexState = (this.#state << kNumPosBitsMax) + posState;
@@ -1230,13 +1215,13 @@ export class LzmaEncoder {
           this.#matchPriceCount += 1;
         }
 
-        this.#prevByte = mf_.getIndexByte(len - 1 - this.#extraBufofs);
+        this.#prevByte = mf_.getIndexByte(len - 1 - this.#extraPos48);
       }
 
-      this.#extraBufofs -= len;
+      this.#extraPos48 -= len;
       this.#nowPos48 += len;
 
-      if (this.#extraBufofs === 0) {
+      if (this.#extraPos48 === 0) {
         if (this.#matchPriceCount >= 128) {
           this.#fillDistancesPrices();
         }
@@ -1245,10 +1230,7 @@ export class LzmaEncoder {
           this.#fillAlignPrices();
         }
 
-        this.processedInSize = this.#nowPos48;
-        //jjjj TOCLEANUP
-        // this.#processedOutSize = 4 +
-        //   re_.cacheSize + re_.pos;
+        this.#processedInSize = this.#nowPos48;
 
         if (mf_.numAvailBytes === 0) {
           this.#Flush();
@@ -1265,8 +1247,8 @@ export class LzmaEncoder {
   }
 
   ReleaseStreams(): void {
-    this.#ReleaseMFStream();
-    this.#RangeEnc.stream = null;
+    this.#matchFinder.cleanup();
+    this.#RangeEnc.cleanup();
   }
 }
 /*80--------------------------------------------------------------------------*/

@@ -104,17 +104,17 @@ export type DeepWritable<T> = {
 // export type Brand_int<TBrand> = int & { [$brand_int]: TBrand };
 /** `Number.isInteger()` */
 export type int = number;
-export const vInt = v.pipe(v.number(), v.integer());
-// export type int = v.InferInput<typeof vInt>;
+export const vint = v.pipe(v.number(), v.integer());
+// export type int = v.InferInput<typeof vint>;
 export type uint = number;
 // export type uint = Brand_int{"uint">;
-export const vuint = v.pipe(vInt, v.minValue(0));
+export const vuint = v.pipe(vint, v.minValue(0));
 // export const Int = BigInt;
 // export const UInt = BigInt;
 
 export type int64 = int;
 export type Int64 = Brand<int64, "Int64">;
-const vInt64 = v.pipe(vInt, v.brand("Int64"));
+const vInt64 = v.pipe(vint, v.brand("Int64"));
 //jjjj TOCLEANUP
 // export type Brand_Int64<TBrand> = Int64 & { [$brand_int64]: TBrand };
 export type Brand_Int64<TBrand extends v.BrandName> = Int64 & v.Brand<TBrand>;
@@ -129,17 +129,17 @@ export type int8 = int;
 export type Int8 = Brand<int8, "Int8">;
 export type uint64 = uint;
 export type uint32 = uint;
-export type Uint32 = Brand<uint32, "Uint32">;
+export type UInt32 = Brand<uint32, "UInt32">;
 export type uint16 = uint;
-export type Uint16 = Brand<uint16, "Uint16">;
-export const vUint16 = v.pipe(
+export type UInt16 = Brand<uint16, "UInt16">;
+export const vUInt16 = v.pipe(
   vuint,
   v.maxValue(2 ** 16 - 1),
-  v.brand("Uint16"),
+  v.brand("UInt16"),
 );
 export type uint8 = uint;
 export const vuint8 = v.pipe(vuint, v.maxValue(2 ** 8 - 1));
-export type Uint8 = Brand<uint8, "Uint8">;
+export type UInt8 = Brand<uint8, "UInt8">;
 
 export type unum = number;
 export const vunum = v.pipe(v.number(), v.minValue(0));

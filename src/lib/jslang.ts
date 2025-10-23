@@ -13,7 +13,7 @@ import type {
   IntegerArray,
   ts_t,
   uint,
-  uint64,
+  uint32,
   uint8,
 } from "./alias.ts";
 import { assert } from "./util.ts";
@@ -198,7 +198,7 @@ declare global {
      * @const @param len_x
      * @const @param val_x
      */
-    mock<T extends {} | null>(len_x: uint64, val_x?: T): T[];
+    mock<T extends {} | null>(len_x: uint32, val_x?: T): T[];
   }
 }
 
@@ -248,9 +248,10 @@ Reflect.defineProperty(Array.prototype, "swap", {
   },
 });
 
-Array.mock = (len_x, val_x) => {
-  const a_ = [];
-  a_[len_x - 1] = undefined as any;
+Array.mock = <T>(len_x: uint32, val_x?: T) => {
+  const a_: T[] = [];
+  // a_[len_x - 1] = undefined as any;
+  a_.length = len_x;
   if (val_x !== undefined) a_.fill(val_x);
   return a_;
 };
@@ -445,6 +446,20 @@ declare global {
     /** @const @param rhs_x */
     eql(rhs_x: unknown): boolean;
   }
+
+  interface Uint8ArrayConstructor {
+    /** @const @param _x */
+    fromArys(_x: (uint8[] | Uint8Array)[]): Uint8Array;
+
+    /**
+     * @headconst @param rs_x
+     * @const @param len_x
+     */
+    fromRsU8(rs_x: ReadableStream<uint8>, len_x?: uint): Promise<Uint8Array>;
+
+    /** @headconst @param rs_x */
+    fromRsU8ary(rs_x: ReadableStream<Uint8Array>): Promise<Uint8Array>;
+  }
 }
 
 Reflect.defineProperty(Int8Array.prototype, "eql", {
@@ -510,6 +525,43 @@ Reflect.defineProperty(Float64Array.prototype, "eql", {
     return faEql_impl_(this, rhs_x);
   },
 });
+
+Uint8Array.fromArys = (_x) => {
+  let totalLen = 0;
+  for (const a_ of _x) totalLen += a_.length;
+
+  const ret = new Uint8Array(totalLen);
+  let ofs = 0;
+  for (const a_ of _x) {
+    ret.set(a_, ofs);
+    ofs += a_.length;
+  }
+  return ret;
+};
+Uint8Array.fromRsU8 = async (rs_x, len_x = 0) => {
+  if (len_x > 0) {
+    const ret = new Uint8Array(len_x);
+    let l_ = 0;
+    for await (const chunk of rs_x) ret[l_++] = chunk;
+    return ret;
+  } else {
+    //jjjj TOCLEANUP
+    // const buf = Array.mock<uint8>(data_x.length);
+    // let l_ = 0;
+    // for await (const chunk of les.readable) buf[l_++] = chunk;
+    // buf.length = l_;
+    // return new Uint8Array(buf);
+
+    const buf: uint8[] = [];
+    for await (const chunk of rs_x) buf.push(chunk);
+    return new Uint8Array(buf);
+  }
+};
+Uint8Array.fromRsU8ary = async (rs_x) => {
+  const aa_: Uint8Array[] = [];
+  for await (const chunk of rs_x) aa_.push(chunk);
+  return Uint8Array.fromArys(aa_);
+};
 /*80--------------------------------------------------------------------------*/
 /* JSON */
 

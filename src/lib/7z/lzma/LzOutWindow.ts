@@ -8,10 +8,8 @@
 
 import type { uint, uint8 } from "@fe-lib/alias.ts";
 import "@fe-lib/jslang.ts";
-import * as Is from "@fe-lib/util/is.ts";
 import type { CDist } from "./alias.ts";
-import type { BufferWithCount, Writer } from "./streams.ts";
-import { isBufferWithCount } from "./streams.ts";
+import type { LzmaDecodeStream } from "./LzmaDecodeStream.ts";
 /*80--------------------------------------------------------------------------*/
 
 export class LzOutWindow {
@@ -19,16 +17,15 @@ export class LzOutWindow {
   /** Initialized in {@linkcode Create()} */
   buffer!: uint8[];
 
-  stream: Writer | null = null;
+  #stream: LzmaDecodeStream | null = null;
+  set outStream(_x: LzmaDecodeStream) {
+    this.#stream = _x;
+  }
 
   /** in `buffer`, `>= streamPos` */
-  pos: uint = 0;
+  #pos: uint = 0;
   /** in `buffer`, `<= pos` */
-  streamPos: uint = 0;
-
-  constructor(writer?: Writer) {
-    if (writer) this.stream = writer;
-  }
+  #streamPos: uint = 0;
 
   Create(windowSize: CDist) {
     this.windowSize = windowSize;
@@ -36,30 +33,31 @@ export class LzOutWindow {
   }
 
   Init() {
-    this.pos = 0;
-    this.streamPos = 0;
+    this.#pos = 0;
+    this.#streamPos = 0;
   }
+  /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
   CopyBlock(dist: CDist, len: uint): void {
-    let pos = this.pos - dist - 1;
+    let pos = this.#pos - dist - 1;
     if (pos < 0) pos += this.windowSize;
 
     for (; len--;) {
       if (pos >= this.windowSize) pos = 0;
 
-      this.buffer[this.pos] = this.buffer[pos];
-      this.pos += 1;
+      this.buffer[this.#pos] = this.buffer[pos];
+      this.#pos += 1;
       pos += 1;
 
-      if (this.pos >= this.windowSize) this.flush();
+      if (this.#pos >= this.windowSize) this.flush();
     }
   }
 
   /** Put a single byte into the window */
   PutByte(byte: uint8): void {
-    this.buffer[this.pos] = byte;
-    this.pos++;
-    if (this.pos >= this.windowSize) this.flush();
+    this.buffer[this.#pos] = byte;
+    this.#pos++;
+    if (this.#pos >= this.windowSize) this.flush();
   }
 
   /**
@@ -67,55 +65,25 @@ export class LzOutWindow {
    * @const @param dist_x
    */
   GetByte(dist_x: CDist): uint8 {
-    let pos = this.pos - dist_x - 1;
+    let pos = this.#pos - dist_x - 1;
     if (pos < 0) {
       pos += this.windowSize;
     }
     return this.buffer[pos];
   }
 
-  /** @const @param len_x */
-  #write(len_x: uint): void {
-    const outbuf = this.stream as BufferWithCount;
-    const outbufCount = outbuf.count;
-
-    /* Ensure buffer has enough capacity */
-    if (outbufCount + len_x > outbuf.buf.length) {
-      const newSize = Math.max(outbuf.buf.length * 2, outbufCount + len_x);
-      outbuf.buf.length = outbufCount;
-      const newBuf = Array.mock<uint8>(newSize).fillArray(outbuf.buf);
-      outbuf.buf = newBuf;
-    }
-
-    for (let i = 0; i < len_x; i++) {
-      outbuf.buf[outbufCount + i] = this.buffer[this.streamPos + i];
-    }
-    outbuf.count += len_x;
-  }
-
   flush(): void {
-    const size = this.pos - this.streamPos;
+    const size = this.#pos - this.#streamPos;
     if (!size) return;
 
-    if (this.stream) {
-      if (isBufferWithCount(this.stream)) {
-        this.#write(size);
-      } else if (Is.func(this.stream.write)) {
-        /* Fallback: write directly if it's a plain Writer */
-        const slice = this.buffer.slice(this.streamPos, this.streamPos + size);
-        this.stream.write(slice);
-      }
-    }
+    this.#stream?.writeFrom(this.buffer, this.#streamPos, size);
 
-    if (this.pos >= this.windowSize) this.pos = 0;
-    this.streamPos = this.pos;
+    if (this.#pos >= this.windowSize) this.#pos = 0;
+    this.#streamPos = this.#pos;
   }
 
-  /** Reset the window */
-  reset(): void {
-    this.pos = 0;
-    this.streamPos = 0;
-    this.buffer.fill(0);
+  cleanup(): void {
+    this.#stream = null;
   }
 }
 /*80--------------------------------------------------------------------------*/

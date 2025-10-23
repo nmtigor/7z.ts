@@ -13,13 +13,13 @@ import {
   kNumMoveBits,
   kTopValue,
 } from "./alias.ts";
-import type { BufferWithCount } from "./streams.ts";
+import type { LzmaEncodeStream } from "./LzmaEncodeStream.ts";
 import type { BitTree } from "./util.ts";
 /*80--------------------------------------------------------------------------*/
 
 export class RangeEncoder {
-  #stream: BufferWithCount | null = null;
-  set stream(_x: BufferWithCount | null) {
+  #stream: LzmaEncodeStream | null = null;
+  set outStream(_x: LzmaEncodeStream) {
     this.#stream = _x;
   }
 
@@ -28,40 +28,12 @@ export class RangeEncoder {
   #low = 0;
   #cacheSize = 1;
   #pos = 0;
-
-  //jjjj TOCLEANUP
-  // Init(): void {
-  //   //jjjj TOCLEANUP
-  //   // this.#low = [0, 0];
-  //   this.#rrange = 0xFFFF_FFFF;
-  //   this.#cacheSize = 1;
-  //   //jjjj TOCLEANUP
-  //   // this.#cache = 0;
-  //   // this.#pos = [0, 0];
-  // }
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
-
-  /** @const @param b_x */
-  #writeByte(b_x: uint32): void {
-    const outbuf = this.#stream;
-    if (!outbuf) return;
-    const outbufCount = outbuf.count;
-
-    /* Ensure buffer has enough capacity */
-    if (outbufCount >= outbuf.buf.length) {
-      const newSize = Math.max(outbuf.buf.length * 2, outbufCount + 1);
-      outbuf.buf.length = outbufCount;
-      const newBuf = Array.mock<uint8>(newSize).fillArray(outbuf.buf);
-      outbuf.buf = newBuf;
-    }
-
-    outbuf.buf[outbufCount] = b_x & 0xff;
-    outbuf.count += 1;
-  }
 
   /**
    * Shift low helper (proper implementation) - public method for external
-   * access
+   * access\
+   * `in( this.#stream)`
    */
   shiftLow(): void {
     const LowHi = Number(BigInt(this.#low) >> 32n) | 0;
@@ -74,13 +46,13 @@ export class RangeEncoder {
 
       let temp = this.#cache;
       do {
-        this.#writeByte(temp + LowHi);
+        this.#stream!.writeByte(temp + LowHi);
         temp = 0xff;
       } while ((this.#cacheSize -= 1) !== 0);
 
       this.#cache = (this.#low | 0) >>> 24;
       // } else {
-      //   console.log(`%crun here: `, `color:${LOG_cssc.runhere}`);
+      //   console.log(`%crun here: `, `color:red`);
     }
 
     this.#cacheSize += 1;
@@ -175,6 +147,10 @@ export class RangeEncoder {
       m_ = m_ << 1 | bit;
       symbol_x >>= 1;
     }
+  }
+
+  cleanup(): void {
+    this.#stream = null;
   }
 }
 /*80--------------------------------------------------------------------------*/

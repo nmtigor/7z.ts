@@ -16,6 +16,7 @@ import {
   kNumAlignBits,
   kNumLenToPosStates,
   kNumPosBitsMax,
+  kNumPosSlotBits,
   kNumStates,
   LZMA_DIC_MIN,
   MATCH_DECODERS_SIZE,
@@ -23,6 +24,7 @@ import {
 } from "./alias.ts";
 import { LenDecoder } from "./LenCoder.ts";
 import { LitDecoder } from "./LitCoder.ts";
+import type { LzmaDecodeStream } from "./LzmaDecodeStream.ts";
 import { LzOutWindow } from "./LzOutWindow.ts";
 import { RangeDecoder } from "./RangeDecoder.ts";
 import {
@@ -34,37 +36,39 @@ import {
   UpdateState_Rep,
   UpdateState_ShortRep,
 } from "./util.ts";
-import type { BaseStream } from "./streams.ts";
 /*80--------------------------------------------------------------------------*/
 
 export class LzmaDecoder {
   readonly OutWindow = new LzOutWindow();
 
   readonly #RangeDec = new RangeDecoder();
-  set stream(_x: BaseStream) {
-    this.#RangeDec.stream = _x;
+  set inStream(_x: LzmaDecodeStream) {
+    this.#RangeDec.inStream = _x;
   }
 
-  rep0: CDist = 0;
-  rep1: CDist = 0;
-  rep2: CDist = 0;
-  rep3: CDist = 0;
+  #rep0: CDist = 0;
+  #rep1: CDist = 0;
+  #rep2: CDist = 0;
+  #rep3: CDist = 0;
   #state: CState = 0;
 
   outSize = 0;
-  nowPos48: uint8 = 0;
-  prevByte: uint8 = 0;
+  #nowPos48: uint8 = 0;
+  get nowPos48() {
+    return this.#nowPos48;
+  }
+  #prevByte: uint8 = 0;
 
   /* Decoder configuration */
   /** `(1 << pb) - 1` */
-  posStateMask: uint8 = 0;
-  dictSizeCheck: CDist = 0;
+  #posStateMask: uint8 = 0;
+  #dictSizeCheck: CDist = 0;
   /* ~ */
 
   /* match distance */
   readonly #posSlotDecoder = Array.from(
     { length: kNumLenToPosStates },
-    () => new BitTree(6),
+    () => new BitTree(kNumPosSlotBits),
   );
   readonly AlignDecoder = new BitTree(kNumAlignBits);
   readonly PosDecoders = Array.mock<CProb>(POS_CODERS_SIZE);
@@ -92,8 +96,8 @@ export class LzmaDecoder {
 
   readonly #litdec = new LitDecoder();
 
-  Init(): void {
-    this.#RangeDec.Init();
+  async Init(): Promise<void> {
+    await this.#RangeDec.Init();
     this.OutWindow.Init();
 
     this.#litdec.Init();
@@ -121,7 +125,7 @@ export class LzmaDecoder {
     const pb = Math.floor(remainder / 5);
     if (pb > 4) return false;
 
-    this.posStateMask = (1 << pb) - 1;
+    this.#posStateMask = (1 << pb) - 1;
 
     /* Calculate dictionary size from `properties_x[1-4]` */
     let dictSize: CDist = 0;
@@ -131,7 +135,7 @@ export class LzmaDecoder {
       dictSize += unsignedByte << (i * 8);
     }
 
-    this.dictSizeCheck = Math.max(dictSize, 1);
+    this.#dictSizeCheck = Math.max(dictSize, 1);
 
     this.OutWindow.Create(Math.max(dictSize, LZMA_DIC_MIN));
 
@@ -143,16 +147,16 @@ export class LzmaDecoder {
     return true;
   }
 
-  #decodeLiteral(): void {
+  async #decodeLiteral(): Promise<void> {
     let symbol = 1;
 
-    const coder = this.#litdec.getSubCoder(this.nowPos48, this.prevByte);
+    const coder = this.#litdec.getSubCoder(this.#nowPos48, this.#prevByte);
     if (this.#state >= 7) {
-      let matchByte = this.OutWindow.GetByte(this.rep0);
+      let matchByte = this.OutWindow.GetByte(this.#rep0);
       do {
         const matchBit = (matchByte >> 7) & 1;
         matchByte <<= 1;
-        const bit = this.#RangeDec.decodeBit(
+        const bit = await this.#RangeDec.decodeBit(
           coder.decoders,
           ((1 + matchBit) << 8) + symbol,
         );
@@ -161,17 +165,18 @@ export class LzmaDecoder {
       } while (symbol < 0x100);
     }
     while (symbol < 0x100) {
-      symbol = symbol << 1 | this.#RangeDec.decodeBit(coder.decoders, symbol);
+      symbol = symbol << 1 |
+        await this.#RangeDec.decodeBit(coder.decoders, symbol);
     }
     this.#state = UpdateState_Literal(this.#state);
 
-    this.prevByte = symbol & 0xff;
-    this.OutWindow.PutByte(this.prevByte);
+    this.#prevByte = symbol & 0xff;
+    this.OutWindow.PutByte(this.#prevByte);
   }
 
   /** @const @param len_x */
-  DecodeDistance(len_x: CLen): CDist {
-    const posSlot: uint8 = this.#RangeDec.decodeBitTree(
+  async DecodeDistance(len_x: CLen): Promise<CDist> {
+    const posSlot = await this.#RangeDec.decodeBitTree(
       this.#posSlotDecoder[getLenToPosState(len_x)],
     );
     if (posSlot < 4) return posSlot;
@@ -179,16 +184,17 @@ export class LzmaDecoder {
     const numDirectBits: uint8 = (posSlot >> 1) - 1;
     let dist: CDist = (2 | (posSlot & 1)) << numDirectBits;
     if (posSlot < kEndPosModelIndex) {
-      dist += this.#RangeDec.decodeReverseBits(
+      dist += await this.#RangeDec.decodeReverseBits(
         this.PosDecoders,
         numDirectBits,
         // dist - posSlot - 1,
         dist - posSlot,
       );
     } else {
-      dist += this.#RangeDec.decodeDirectBits(numDirectBits - kNumAlignBits) <<
+      dist +=
+        await this.#RangeDec.decodeDirectBits(numDirectBits - kNumAlignBits) <<
         kNumAlignBits;
-      dist += this.#RangeDec.decodeReverseBits(
+      dist += await this.#RangeDec.decodeReverseBits(
         this.AlignDecoder.Probs,
         this.AlignDecoder.NumBits,
       );
@@ -196,27 +202,27 @@ export class LzmaDecoder {
     return dist;
   }
 
-  codeOneChunk(): DecodeChunkR {
-    const posState: CState = this.nowPos48 & this.posStateMask;
+  async codeOneChunk(): Promise<DecodeChunkR> {
+    const posState: CState = this.#nowPos48 & this.#posStateMask;
 
     /* LITERAL symbol */ if (
-      this.#RangeDec.decodeBit(
+      await this.#RangeDec.decodeBit(
         this.#isMatch,
         (this.#state << kNumPosBitsMax) + posState,
       ) === 0
     ) {
-      this.#decodeLiteral();
-      this.nowPos48++;
+      await this.#decodeLiteral();
+      this.#nowPos48++;
     } else {
       let len: CLen;
 
       /* Rep Match */ if (
-        this.#RangeDec.decodeBit(this.#isRep, this.#state) === 1
+        await this.#RangeDec.decodeBit(this.#isRep, this.#state) === 1
       ) {
         len = 0;
-        if (this.#RangeDec.decodeBit(this.IsRepG0, this.#state) === 0) {
+        if (await this.#RangeDec.decodeBit(this.IsRepG0, this.#state) === 0) {
           if (
-            this.#RangeDec.decodeBit(
+            await this.#RangeDec.decodeBit(
               this.IsRep0Long,
               (this.#state << kNumPosBitsMax) + posState,
             ) === 0
@@ -226,45 +232,48 @@ export class LzmaDecoder {
           }
         } else {
           let distance: CDist;
-          if (this.#RangeDec.decodeBit(this.IsRepG1, this.#state) === 0) {
-            distance = this.rep1;
+          if (await this.#RangeDec.decodeBit(this.IsRepG1, this.#state) === 0) {
+            distance = this.#rep1;
           } else {
-            if (this.#RangeDec.decodeBit(this.IsRepG2, this.#state) === 0) {
-              distance = this.rep2;
+            if (
+              await this.#RangeDec.decodeBit(this.IsRepG2, this.#state) === 0
+            ) {
+              distance = this.#rep2;
             } else {
-              distance = this.rep3;
-              this.rep3 = this.rep2;
+              distance = this.#rep3;
+              this.#rep3 = this.#rep2;
             }
-            this.rep2 = this.rep1;
+            this.#rep2 = this.#rep1;
           }
-          this.rep1 = this.rep0;
-          this.rep0 = distance;
+          this.#rep1 = this.#rep0;
+          this.#rep0 = distance;
         }
 
         if (len === 0) {
-          len = this.#replendec.decode(posState, this.#RangeDec) + kMatchMinLen;
+          len = await this.#replendec.decode(posState, this.#RangeDec) +
+            kMatchMinLen;
           this.#state = UpdateState_Rep(this.#state);
         }
       } /* Simple Match */ else {
-        this.rep3 = this.rep2;
-        this.rep2 = this.rep1;
-        this.rep1 = this.rep0;
-        len = this.#lendec.decode(posState, this.#RangeDec);
+        this.#rep3 = this.#rep2;
+        this.#rep2 = this.#rep1;
+        this.#rep1 = this.#rep0;
+        len = await this.#lendec.decode(posState, this.#RangeDec);
         this.#state = UpdateState_Match(this.#state);
-        this.rep0 = this.DecodeDistance(len);
-        if (this.rep0 < 0) {
-          return this.rep0 === -1 ? DecodeChunkR.end : DecodeChunkR.err;
+        this.#rep0 = await this.DecodeDistance(len);
+        if (this.#rep0 < 0) {
+          return this.#rep0 === -1 ? DecodeChunkR.end : DecodeChunkR.err;
         }
         len += kMatchMinLen;
       }
 
-      if (this.rep0 >= this.nowPos48 || this.rep0 >= this.dictSizeCheck) {
+      if (this.#rep0 >= this.#nowPos48 || this.#rep0 >= this.#dictSizeCheck) {
         return DecodeChunkR.err;
       }
 
-      this.OutWindow.CopyBlock(this.rep0, len);
-      this.nowPos48 += len;
-      this.prevByte = this.OutWindow.GetByte(0);
+      this.OutWindow.CopyBlock(this.#rep0, len);
+      this.#nowPos48 += len;
+      this.#prevByte = this.OutWindow.GetByte(0);
     }
 
     return DecodeChunkR.suc;
@@ -272,8 +281,8 @@ export class LzmaDecoder {
 
   /** Cleanup decoder resources */
   cleanup(): void {
-    this.OutWindow.stream = null;
-    this.#RangeDec.stream = null;
+    this.OutWindow.cleanup();
+    this.#RangeDec.cleanup();
   }
 }
 /*80--------------------------------------------------------------------------*/

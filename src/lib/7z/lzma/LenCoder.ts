@@ -64,12 +64,12 @@ export class LenDecoder extends LenCoder {
    * @const @param posState_x
    * @borrow @headconst @param rd_x
    */
-  decode(posState_x: CState, rd_x: RangeDecoder): CLen {
-    const len: CLen = rd_x.decodeBit(this.choice$, 0) === 0
-      ? rd_x.decodeBitTree(this.lowCoder$[posState_x])
-      : rd_x.decodeBit(this.choice$, 1) === 0
-      ? 8 + rd_x.decodeBitTree(this.midCoder$[posState_x])
-      : 16 + rd_x.decodeBitTree(this.highCoder$);
+  async decode(posState_x: CState, rd_x: RangeDecoder): Promise<CLen> {
+    const len: CLen = await rd_x.decodeBit(this.choice$, 0) === 0
+      ? await rd_x.decodeBitTree(this.lowCoder$[posState_x])
+      : await rd_x.decodeBit(this.choice$, 1) === 0
+      ? 8 + await rd_x.decodeBitTree(this.midCoder$[posState_x])
+      : 16 + await rd_x.decodeBitTree(this.highCoder$);
     return len;
   }
 }

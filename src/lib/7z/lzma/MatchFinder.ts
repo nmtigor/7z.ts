@@ -8,10 +8,10 @@
 
 import type { int, uint, uint32, uint8 } from "@fe-lib/alias.ts";
 import "@fe-lib/jslang.ts";
+import { CRC32_TABLE } from "@fe-lib/util/crc32.ts";
 import type { CDist, CLen } from "./alias.ts";
 import { DICTSIZE_THRESHOLD, kMatchMaxLen, kNumOpts } from "./alias.ts";
-import { BaseStream } from "./streams.ts";
-import { arraycopy, CRC32_TABLE } from "./util.ts";
+import type { LzmaEncodeStream } from "./LzmaEncodeStream.ts";
 /*80--------------------------------------------------------------------------*/
 
 const Hash2Size_ = 0x400;
@@ -83,8 +83,8 @@ export class MatchFinder {
 
   #ptToLastSafePos = 0;
 
-  #stream: BaseStream | null = null;
-  set stream(_x: BaseStream | null) {
+  #stream: LzmaEncodeStream | null = null;
+  set inStream(_x: LzmaEncodeStream) {
     this.#stream = _x;
   }
 
@@ -157,8 +157,6 @@ export class MatchFinder {
   /* ~ */
 
   #matchMaxLen: CLen = 0;
-  //jjjj TOCLEANUP
-  // cutValue: uint8 = 0;
 
   readonly matchDistances: (CLen | CDist)[] = [];
 
@@ -176,8 +174,6 @@ export class MatchFinder {
     if (dictSize_x >= DICTSIZE_THRESHOLD) return;
 
     this.#matchMaxLen = numFastBytes_x;
-    //jjjj TOCLEANUP
-    // this.cutValue = 0x10 + (numFastBytes_x >> 1);
 
     const windowReservSize =
       ~~((dictSize_x + keepAddBufferBefore + numFastBytes_x +
@@ -202,12 +198,12 @@ export class MatchFinder {
   }
 
   /** `in( this.#stream)` */
-  Init() {
+  async Init(): Promise<void> {
     this.#bufferOffset = 0;
     this.#pos = 0;
     this.#streamPos = 0;
     this.#streamEndReached = false;
-    this.readBlock();
+    await this.readBlock();
 
     this.#cyclicBufferPos = 0;
     this._reduceOffsets(-1);
@@ -235,49 +231,27 @@ export class MatchFinder {
   }
 
   /**
-   * Read data from the input stream into the buffer\
+   * Read a block of data from the input stream\
    * `in( this.#stream)`
    *
    * Modify
-   *    - `bufferBase[i]`, `stream.pos`
-   *
-   * @const @param off_x
-   * @param len_x
-   */
-  private _readFromStream(off_x: number, len_x: number): uint | -1 {
-    const stream = this.#stream!;
-    const buffer = this.#bufferBase;
-
-    if (stream.pos >= stream.count) return -1;
-
-    const srcBuf = stream.buf instanceof Uint8Array
-      ? Array.from(stream.buf)
-      : stream.buf;
-
-    len_x = Math.min(len_x, stream.count - stream.pos);
-    arraycopy(srcBuf, stream.pos, buffer, off_x, len_x);
-    stream.pos += len_x;
-
-    return len_x;
-  }
-
-  /**
-   * Read a block of data from the input stream
-   *
-   * Modify
    *    - `streamPos`, `posLimit`, `#streamEndReached`
-   *    - {@linkcode _readFromStream()}
+   *    - {@linkcode #stream.readTo()}
    */
-  readBlock(): void {
+  async readBlock(): Promise<void> {
     if (this.#streamEndReached) return;
 
     while (true) {
       const size = this.#blockSize - this.#bufpos_1;
-      if (!size) return;
+      if (size === 0) return;
 
-      const bytesRead = this._readFromStream(this.#bufpos_1, size);
+      const bytesRead = await this.#stream!.readTo(
+        this.#bufferBase,
+        this.#bufpos_1,
+        size,
+      );
 
-      if (bytesRead === -1) {
+      if (bytesRead === 0) {
         this.#posLimit = this.#streamPos;
         if (this.#bufpos_1 > this.#ptToLastSafePos) {
           this.#posLimit = this.#ptToLastSafePos - this.#bufferOffset;
@@ -317,13 +291,13 @@ export class MatchFinder {
    *    - {@linkcode _moveBlock()}
    *    - {@linkcode readBlock()}
    */
-  private _MovePos_1(): void {
+  private async _MovePos_1(): Promise<void> {
     this.#pos += 1;
     if (this.#pos > this.#posLimit) {
       if (this.#bufpos_0 > this.#ptToLastSafePos) {
         this._moveBlock();
       }
-      this.readBlock();
+      await this.readBlock();
     }
   }
 
@@ -350,13 +324,13 @@ export class MatchFinder {
    *    - {@linkcode _NormalizeLinks()}
    *    - {@linkcode _reduceOffsets()}
    */
-  #MovePos_0(): void {
+  async #MovePos_0(): Promise<void> {
     this.#cyclicBufferPos += 1;
     if (this.#cyclicBufferPos >= this.#cyclicBufferSize) {
       this.#cyclicBufferPos = 0;
     }
 
-    this._MovePos_1();
+    await this._MovePos_1();
 
     //jjjj test this branch
     if (this.#pos === DICTSIZE_THRESHOLD) {
@@ -369,12 +343,12 @@ export class MatchFinder {
     }
   }
 
-  GetMatches(): uint {
+  async GetMatches(): Promise<uint> {
     const md_ = this.matchDistances;
 
     const lenLimit = Math.min(this.#streamPos - this.#pos, this.#matchMaxLen);
     if (lenLimit < this.#kMinMatchCheck) {
-      this.#MovePos_0();
+      await this.#MovePos_0();
       return 0;
     }
 
@@ -455,15 +429,9 @@ export class MatchFinder {
         }
       }
     }
-    //jjjj TOCLEANUP
-    // let count = mf_.cutValue;
 
     while (1) {
-      //jjjj TOCLEANUP
-      // if (curMatchPos <= matchMinPos || mf_.cutValue === 0) {
       if (curMatchPos <= matchMinPos) {
-        //jjjj TOCLEANUP
-        // count -= 1;
         this.#son[ptr0] = this.#son[ptr1] = 0;
         break;
       }
@@ -515,16 +483,16 @@ export class MatchFinder {
       }
     }
 
-    this.#MovePos_0();
+    await this.#MovePos_0();
     return offset;
   }
 
   /** @param num_x */
-  Skip(num_x: CLen): void {
+  async Skip(num_x: CLen): Promise<void> {
     for (; num_x--;) {
       const lenLimit = Math.min(this.#streamPos - this.#pos, this.#matchMaxLen);
       if (lenLimit < this.#kMinMatchCheck) {
-        this.#MovePos_0();
+        await this.#MovePos_0();
         continue;
       }
 
@@ -555,15 +523,9 @@ export class MatchFinder {
       let ptr0 = ptr1 + 1;
       let len1 = this.#kNumHashDirectBytes;
       let len0 = len1;
-      //jjjj TOCLEANUP
-      // let count = this.cutValue;
 
       while (1) {
-        //jjjj TOCLEANUP
-        // if (curMatchPos <= matchMinPos || this.cutValue === 0) {
         if (curMatchPos <= matchMinPos) {
-          //jjjj TOCLEANUP
-          // count -= 1;
           this.#son[ptr0] = this.#son[ptr1] = 0;
           break;
         }
@@ -605,7 +567,7 @@ export class MatchFinder {
           len0 = len;
         }
       }
-      this.#MovePos_0();
+      await this.#MovePos_0();
     }
   }
 
@@ -645,6 +607,11 @@ export class MatchFinder {
     );
 
     return i_;
+  }
+
+  cleanup(): void {
+    this.#stream?.cleanup();
+    this.#stream = null;
   }
 }
 /*80--------------------------------------------------------------------------*/

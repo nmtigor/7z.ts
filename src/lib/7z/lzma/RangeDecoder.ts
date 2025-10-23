@@ -9,7 +9,7 @@
 import type { uint, uint32, uint8 } from "@fe-lib/alias.ts";
 import type { CProb } from "./alias.ts";
 import { kNumBitModelTotalBits, kNumMoveBits, kTopValue } from "./alias.ts";
-import type { BaseStream } from "./streams.ts";
+import type { LzmaDecodeStream } from "./LzmaDecodeStream.ts";
 import type { BitTree } from "./util.ts";
 /*80--------------------------------------------------------------------------*/
 
@@ -18,36 +18,25 @@ export class RangeDecoder {
   #Code: uint32 = 0;
   #Range: uint32 = 0xFFFF_FFFF;
 
-  #stream: BaseStream | null = null;
-  set stream(_x: BaseStream | null) {
+  #stream: LzmaDecodeStream | null = null;
+  set inStream(_x: LzmaDecodeStream) {
     this.#stream = _x;
   }
 
-  Init(): void {
-    //jjjj TOCLEANUP
-    // this.#Code = 0;
-    // this.#Range = 0xFFFF_FFFF;
+  /** `in( this.#stream)` */
+  async Init(): Promise<void> {
     for (let i = 0; i < 5; ++i) {
-      this.#Code = this.#Code << 8 | this.#readByte();
+      this.#Code = this.#Code << 8 | await this.#stream!.readByte();
     }
   }
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
-  /** Read a single byte from the input stream */
-  #readByte(): uint8 | -1 {
-    if (!this.#stream) return 0;
-    if (this.#stream.pos >= this.#stream.count) return -1;
-
-    const value = this.#stream.buf[this.#stream.pos];
-    this.#stream.pos++;
-    return value & 0xFF;
-  }
-
-  #Normalize(): void {
+  /** `in( this.#stream)` */
+  async #Normalize(): Promise<void> {
     // if (this.#Range < kTopValue) {
     if (!(this.#Range & -kTopValue)) {
       this.#Range <<= 8;
-      this.#Code = this.#Code << 8 | this.#readByte();
+      this.#Code = this.#Code << 8 | await this.#stream!.readByte();
     }
   }
 
@@ -56,7 +45,7 @@ export class RangeDecoder {
    * @borrow @headconst @param probs_x
    * @const @param index_x
    */
-  decodeBit(probs_x: CProb[], index_x: uint): 0 | 1 {
+  async decodeBit(probs_x: CProb[], index_x: uint): Promise<0 | 1> {
     let prob = probs_x[index_x];
     const bound = (this.#Range >>> kNumBitModelTotalBits) * prob;
     let symbol: 0 | 1;
@@ -72,7 +61,7 @@ export class RangeDecoder {
       symbol = 1;
     }
     probs_x[index_x] = prob;
-    this.#Normalize();
+    await this.#Normalize();
     return symbol;
   }
 
@@ -80,7 +69,7 @@ export class RangeDecoder {
    * Decode direct bits (without probability model)
    * @const @param numBits_x
    */
-  decodeDirectBits(numBits_x: uint8): uint32 {
+  async decodeDirectBits(numBits_x: uint8): Promise<uint32> {
     let res: uint32 = 0;
     for (let i = numBits_x; i--;) {
       this.#Range >>>= 1;
@@ -88,7 +77,7 @@ export class RangeDecoder {
       const t_ = 0 - (this.#Code >>> 31);
       this.#Code += this.#Range & t_;
 
-      this.#Normalize();
+      await this.#Normalize();
       res <<= 1;
       res += t_ + 1;
     }
@@ -99,17 +88,17 @@ export class RangeDecoder {
    * @borrow @headconst @param probs_x
    * @const @param numBits_x
    */
-  #decodeBits(probs_x: CProb[], numBits_x: uint8) {
+  async #decodeBits(probs_x: CProb[], numBits_x: uint8): Promise<uint32> {
     let m_ = 1;
     for (let i = numBits_x; i--;) {
-      m_ = (m_ << 1) + this.decodeBit(probs_x, m_);
+      m_ = (m_ << 1) + await this.decodeBit(probs_x, m_);
     }
     return m_ - (1 << numBits_x);
   }
 
   /** @borrow @headconst @param bitTree_x */
-  decodeBitTree(bitTree_x: BitTree): uint8 {
-    return this.#decodeBits(bitTree_x.Probs, bitTree_x.NumBits);
+  async decodeBitTree(bitTree_x: BitTree): Promise<uint32> {
+    return await this.#decodeBits(bitTree_x.Probs, bitTree_x.NumBits);
   }
 
   /**
@@ -117,19 +106,24 @@ export class RangeDecoder {
    * @const @param numBits_x
    * @const @param startIndex_x
    */
-  decodeReverseBits(
+  async decodeReverseBits(
     probs_x: CProb[],
     numBits_x: uint8,
     startIndex_x: uint = 0,
-  ): uint8 {
+  ): Promise<uint32> {
     let m_ = 1;
     let symbol = 0;
     for (let i = 0; i < numBits_x; ++i) {
-      const bit = this.decodeBit(probs_x, startIndex_x + m_);
+      const bit = await this.decodeBit(probs_x, startIndex_x + m_);
       m_ = m_ << 1 | bit;
       symbol |= bit << i;
     }
     return symbol;
+  }
+
+  cleanup(): void {
+    this.#stream?.cleanup();
+    this.#stream = null;
   }
 }
 /*80--------------------------------------------------------------------------*/

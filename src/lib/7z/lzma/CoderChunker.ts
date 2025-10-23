@@ -33,12 +33,10 @@ export class EncoderChunker extends CoderChunker {
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
   /** Process one chunk of encoding */
-  processChunk(): boolean {
+  async processChunk(): Promise<boolean> {
     if (!this.alive$) throw new Error("bad state");
-    //jjjj TOCLEANUP
-    // if (!this.encoder) throw new Error("No decoding");
 
-    this.encoder.codeOneBlock();
+    await this.encoder.codeOneBlock();
     this.inBytesProcessed$ = this.encoder.processedInSize;
 
     if (this.encoder.finished) {
@@ -62,12 +60,10 @@ export class DecoderChunker extends CoderChunker {
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
   /** Process one chunk of decoding */
-  processChunk(): boolean {
+  async processChunk(): Promise<boolean> {
     if (!this.alive$) throw new Error("Bad state");
-    //jjjj TOCLEANUP
-    // if (this.encoder) throw new Error("No encoding");
 
-    const result = this.decoder.codeOneChunk();
+    const result = await this.decoder.codeOneChunk();
     if (result === DecodeChunkR.err) throw new Error("Corrupted input");
 
     this.inBytesProcessed$ = this.decoder.nowPos48;

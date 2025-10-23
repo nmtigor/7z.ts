@@ -9,7 +9,7 @@
 import type { uint, uint8 } from "@fe-lib/alias.ts";
 import "@fe-lib/jslang.ts";
 import type { CProb, CProbPrice } from "./alias.ts";
-import { LITERAL_DECODER_SIZE, PROB_INIT_VAL } from "./alias.ts";
+import { LZMA_LIT_SIZE, PROB_INIT_VAL } from "./alias.ts";
 import { getBitPrice, initProbs } from "./util.ts";
 /*80--------------------------------------------------------------------------*/
 
@@ -33,7 +33,7 @@ abstract class LitCoder {
 
 /** Literal decoder/encoder for optimization */
 export type ILitSubCoder = {
-  /** `length === LITERAL_DECODER_SIZE` */
+  /** `length === LZMA_LIT_SIZE` */
   decoders: CProb[];
 };
 /*64----------------------------------------------------------*/
@@ -62,7 +62,7 @@ export class LitDecoder extends LitCoder {
     const numStates = 1 << (lc + lp);
     this.coders = Array.from(
       { length: numStates },
-      () => ({ decoders: Array.mock(LITERAL_DECODER_SIZE) }),
+      () => ({ decoders: Array.mock(LZMA_LIT_SIZE) }),
     );
   }
 
@@ -75,7 +75,7 @@ export class LitDecoder extends LitCoder {
 /*64----------------------------------------------------------*/
 
 class LitSubCoder_ implements ILitSubCoder {
-  readonly #coders = Array.mock(LITERAL_DECODER_SIZE, PROB_INIT_VAL);
+  readonly #coders = Array.mock(LZMA_LIT_SIZE, PROB_INIT_VAL);
 
   /** @implement */
   get decoders(): CProb[] {

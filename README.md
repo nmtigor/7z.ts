@@ -1,11 +1,26 @@
 TOTEXT
 
+### Streamable
+
+```ts
+const { size } = Deno.statSync(`${D_}/lorem.txt`);
+const les = new LzmaEncodeStream().compress(size, 1);
+const res = await fetch(`file://${D_}/lorem.txt`);
+const rs_ = res.body!.pipeThrough(les);
+
+
+const lds = new LzmaDecodeStream().decompress();
+const res_1 = await fetch(`file://${D_}/lorem.lzma`);
+const rs_1 = res_1.body!.pipeThrough(lds);
+```
+See `it("streamable"` in "src/lib/7z/lzma/Lzma_test.ts".
+
 ### Unittest
 
 ```bash
 cd /path_to/7z.ts
 # deno 2.4.3
-deno test # 10 passed (29 steps)
+deno test -R # 10 passed (28 steps)
 ```
 
 ### Main references
