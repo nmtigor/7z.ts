@@ -83,9 +83,9 @@ export class MatchFinder {
 
   #ptToLastSafePos = 0;
 
-  #stream: LzmaEncodeStream | null = null;
+  #inStream: LzmaEncodeStream | null = null;
   set inStream(_x: LzmaEncodeStream) {
-    this.#stream = _x;
+    this.#inStream = _x;
   }
 
   /* type */
@@ -197,7 +197,7 @@ export class MatchFinder {
     this.#hash = Array.mock(this.#hashSizeSum);
   }
 
-  /** `in( this.#stream)` */
+  /** `in( this.#inStream)` */
   async Init(): Promise<void> {
     this.#bufferOffset = 0;
     this.#pos = 0;
@@ -232,11 +232,11 @@ export class MatchFinder {
 
   /**
    * Read a block of data from the input stream\
-   * `in( this.#stream)`
+   * `in( this.#inStream)`
    *
    * Modify
    *    - `streamPos`, `posLimit`, `#streamEndReached`
-   *    - {@linkcode #stream.readTo()}
+   *    - {@linkcode #inStream.readTo()}
    */
   async readBlock(): Promise<void> {
     if (this.#streamEndReached) return;
@@ -245,7 +245,7 @@ export class MatchFinder {
       const size = this.#blockSize - this.#bufpos_1;
       if (size === 0) return;
 
-      const bytesRead = await this.#stream!.readTo(
+      const bytesRead = await this.#inStream!.readTo(
         this.#bufferBase,
         this.#bufpos_1,
         size,
@@ -610,8 +610,8 @@ export class MatchFinder {
   }
 
   cleanup(): void {
-    this.#stream?.cleanup();
-    this.#stream = null;
+    this.#inStream?.cleanup();
+    this.#inStream = null;
   }
 }
 /*80--------------------------------------------------------------------------*/

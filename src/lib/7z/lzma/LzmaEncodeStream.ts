@@ -19,13 +19,18 @@ import { LzmaEncoder } from "./LzmaEncoder.ts";
 import { LzmaCodeStream } from "./LzmaCodeStream.ts";
 /*80--------------------------------------------------------------------------*/
 
+const RsU8aSize = 1024;
+
 /** @final */
 export class LzmaEncodeStream extends LzmaCodeStream {
   readonly #encoder = new LzmaEncoder();
   readonly #chunker = new EncoderChunker(this.#encoder);
 
   /* readable */
-  #rsEnque!: (chunk_x: uint8) => void;
+  readonly #rsU8a = new Uint8Array(RsU8aSize);
+  #rsOfs: uint = 0;
+
+  #rsEnque: ((chunk_x: Uint8Array) => void) | undefined;
   #rsClose!: () => void;
 
   readonly readable;
@@ -34,7 +39,7 @@ export class LzmaEncodeStream extends LzmaCodeStream {
   constructor() {
     super();
 
-    this.readable = new ReadableStream<uint8>(
+    this.readable = new ReadableStream<Uint8Array>(
       {
         start: this._rsStart,
         pull: this._rsPull,
@@ -95,7 +100,7 @@ export class LzmaEncodeStream extends LzmaCodeStream {
 
   @bind
   @traceOut(_TRACE)
-  private _rsStart(rc_x: ReadableStreamDefaultController<uint8>) {
+  private _rsStart(rc_x: ReadableStreamDefaultController<Uint8Array>) {
     /*#static*/ if (_TRACE) {
       console.log(`${trace.indent}>>>>>>> LzmaEncodeStream._rsStart() >>>>>>>`);
     }
@@ -105,7 +110,7 @@ export class LzmaEncodeStream extends LzmaCodeStream {
 
   @bind
   @traceOut(_TRACE)
-  private _rsPull(_rc_x: ReadableStreamDefaultController<uint8>) {
+  private _rsPull(_rc_x: ReadableStreamDefaultController<Uint8Array>) {
     /*#static*/ if (_TRACE) {
       console.log(`${trace.indent}>>>>>>> LzmaEncodeStream._rsPull() >>>>>>>`);
     }
@@ -126,8 +131,17 @@ export class LzmaEncodeStream extends LzmaCodeStream {
 
   /** @const @param val_x */
   writeByte(val_x: uint32): void {
-    this.#rsEnque(val_x & 0xff);
+    if (this.#rsOfs >= RsU8aSize) {
+      this.#rsEnque?.(this.#rsU8a.slice());
+      this.#rsOfs = 0;
+    }
+
+    this.#rsU8a[this.#rsOfs++] = val_x & 0xff;
   }
+  // /** @const @param val_x */
+  // writeByte(val_x: uint32): void {
+  //   this.#rsEnque?.(new Uint8Array([val_x & 0xff]));
+  // }
   /*49|||||||||||||||||||||||||||||||||||||||||||*/
 
   /**
@@ -171,9 +185,25 @@ export class LzmaEncodeStream extends LzmaCodeStream {
     this.#initEncode(size_x, MODES[mode_x]);
     this.#process().then(() => {
       // console.log(`%crun here: LzmaEncodeStream.#process().then()`, `color:orange`);
-      this.#rsClose();
-    });
+      this.error.resolve(null);
+    }).catch(this.error.resolve)
+      .finally(() => {
+        this.#rsEnque = undefined;
+        this.#rsClose();
+        this.cleanup();
+      });
     return this;
+  }
+
+  @traceOut(_TRACE)
+  override cleanup() {
+    /*#static*/ if (_TRACE) {
+      console.log(`${trace.indent}>>>>>>> LzmaEncodeStream.cleanup() >>>>>>>`);
+    }
+    super.cleanup();
+    if (this.#rsOfs > 0) {
+      this.#rsEnque?.(this.#rsU8a.subarray(0, this.#rsOfs));
+    }
   }
 }
 /*80--------------------------------------------------------------------------*/

@@ -37,7 +37,12 @@ export async function compress(
   writer.releaseLock();
   await ws_.close();
 
-  return await Uint8Array.fromRsU8(les.readable);
+  const ret = await Uint8Array.fromRsU8ary(les.readable);
+
+  const err = await les.error.promise;
+  if (err) throw err;
+
+  return ret;
 }
 
 /**
@@ -66,18 +71,23 @@ export async function decompress(data_x: Uint8Array): Promise<Uint8Array> {
 
   const ws_ = lds.writable;
   const writer = ws_.getWriter();
-  const ChunkSize = 4;
-  for (let i = 0, iI = data_x.length; i < iI; i += ChunkSize) {
-    await writer.ready;
-    await writer.write(new Uint8Array(data_x.slice(i, i + ChunkSize)));
-  }
-  // await writer.ready;
-  // await writer.write(data_x);
+  // const ChunkSize = 4;
+  // for (let i = 0, iI = data_x.length; i < iI; i += ChunkSize) {
+  //   await writer.ready;
+  //   await writer.write(new Uint8Array(data_x.slice(i, i + ChunkSize)));
+  // }
+  await writer.ready;
+  await writer.write(data_x);
   // console.log(`%crun here: decompress()`, `color:yellow`);
   writer.releaseLock();
   await ws_.close();
 
-  return await Uint8Array.fromRsU8ary(lds.readable);
+  const ret = await Uint8Array.fromRsU8ary(lds.readable);
+
+  const err = await lds.error.promise;
+  if (err) throw err;
+
+  return ret;
 }
 
 /**

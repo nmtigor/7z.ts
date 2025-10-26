@@ -10,6 +10,7 @@ import type { uint, uint8 } from "@fe-lib/alias.ts";
 import "@fe-lib/jslang.ts";
 import type { CProb, CProbPrice } from "./alias.ts";
 import { LZMA_LIT_SIZE, PROB_INIT_VAL } from "./alias.ts";
+import type { ProbState3D } from "./ChunkState.ts";
 import { getBitPrice, initProbs } from "./util.ts";
 /*80--------------------------------------------------------------------------*/
 
@@ -41,15 +42,27 @@ export type ILitSubCoder = {
 export class LitDecoder extends LitCoder {
   /* coders */
   /** Initialized in {@linkcode Create()} */
-  coders!: ILitSubCoder[];
+  #coders!: ILitSubCoder[];
 
   /**
    * Get sub-coder for position and previous byte
    * @const @param pos_x
    * @const @param prevByte_x
+   * @out @param pss_x
    */
-  getSubCoder(pos_x: uint, prevByte_x: uint8): ILitSubCoder {
-    return this.coders[this.getLitState$(pos_x, prevByte_x)];
+  getSubCoder(
+    pos_x: uint,
+    prevByte_x: uint8,
+    s3_x?: ProbState3D,
+  ): ILitSubCoder {
+    const ls_ = this.getLitState$(pos_x, prevByte_x);
+    if (s3_x) s3_x.d1 = ls_;
+    return this.#coders[ls_];
+  }
+
+  /** @const @param s3_x */
+  restoreState(s3_x: ProbState3D): void {
+    s3_x.restoreToSubCoders(this.#coders);
   }
   /* ~ */
 
@@ -60,7 +73,7 @@ export class LitDecoder extends LitCoder {
 
     /** <= 4096 */
     const numStates = 1 << (lc + lp);
-    this.coders = Array.from(
+    this.#coders = Array.from(
       { length: numStates },
       () => ({ decoders: Array.mock(LZMA_LIT_SIZE) }),
     );
@@ -68,7 +81,7 @@ export class LitDecoder extends LitCoder {
 
   Init(): void {
     for (let i = 1 << (this.lc$ + this.lp$); i--;) {
-      initProbs(this.coders[i].decoders);
+      initProbs(this.#coders[i].decoders);
     }
   }
 }
@@ -133,7 +146,7 @@ class LitSubCoder_ implements ILitSubCoder {
 export class LitEncoder extends LitCoder {
   /* coders */
   /** Initialized in {@linkcode Create()} */
-  coders!: LitSubCoder_[];
+  #coders!: LitSubCoder_[];
 
   /**
    * Get sub-coder for position and previous byte
@@ -141,7 +154,7 @@ export class LitEncoder extends LitCoder {
    * @const @param prevByte_x
    */
   getSubCoder(pos_x: uint, prevByte_x: uint8): LitSubCoder_ {
-    return this.coders[this.getLitState$(pos_x, prevByte_x)];
+    return this.#coders[this.getLitState$(pos_x, prevByte_x)];
   }
   /* ~ */
 
@@ -152,7 +165,7 @@ export class LitEncoder extends LitCoder {
 
     /** <= 4096 */
     const numStates = 1 << (lc + lp);
-    this.coders = Array.from(
+    this.#coders = Array.from(
       { length: numStates },
       () => new LitSubCoder_(),
     );
@@ -160,13 +173,13 @@ export class LitEncoder extends LitCoder {
 
   Init() {
     for (let i = 1 << (this.lc$ + this.lp$); i--;) {
-      initProbs(this.coders[i].decoders);
+      initProbs(this.#coders[i].decoders);
     }
   }
 
   /** Reset all sub-coders */
   reset(): void {
-    this.coders.forEach((coder) => coder.reset());
+    this.#coders.forEach((coder) => coder.reset());
   }
 }
 /*80--------------------------------------------------------------------------*/

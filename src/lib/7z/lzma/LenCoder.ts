@@ -10,9 +10,10 @@ import type { uint, uint8 } from "@fe-lib/alias.ts";
 import "@fe-lib/jslang.ts";
 import type { CLen, CProb, CProbPrice, CState } from "./alias.ts";
 import { CHOICE_ARRAY_SIZE } from "./alias.ts";
+import type { LenState } from "./ChunkState.ts";
+import { RangeDecoder } from "./RangeDecoder.ts";
 import type { RangeEncoder } from "./RangeEncoder.ts";
 import { BitTree, getBitPrice, initProbs } from "./util.ts";
-import { RangeDecoder } from "./RangeDecoder.ts";
 /*80--------------------------------------------------------------------------*/
 
 abstract class LenCoder {
@@ -33,6 +34,14 @@ abstract class LenCoder {
   protected midCoder$!: BitTree[];
   /** High range coder (for lengths 18+) */
   protected readonly highCoder$ = new BitTree(8);
+
+  /** @const @param ls_x */
+  restoreState(ls_x: LenState): void {
+    ls_x.choice.restoreTo(this.choice$);
+    ls_x.lowCoder.restoreToBitTrees(this.lowCoder$);
+    ls_x.midCoder.restoreToBitTrees(this.midCoder$);
+    ls_x.highCoder.restoreTo(this.highCoder$.Probs);
+  }
 
   /** @const @param numPosStates_x */
   Create(numPosStates_x: uint8) {
@@ -60,6 +69,29 @@ abstract class LenCoder {
 /*64----------------------------------------------------------*/
 
 export class LenDecoder extends LenCoder {
+  /**
+   * @const @param posState_x
+   * @borrow @headconst @param rd_x
+   * @headconst @param ls_x
+   * @throw {@linkcode NoInput}
+   */
+  decodeSync(posState_x: CState, rd_x: RangeDecoder, ls_x?: LenState): CLen {
+    let len: CLen;
+    if (rd_x.decodeBitSync(this.choice$, 0, ls_x?.choice) === 0) {
+      if (ls_x) ls_x.lowCoder.d1 = posState_x;
+      len = rd_x.decodeBitTreeSync(this.lowCoder$[posState_x], ls_x?.lowCoder);
+    } else {
+      if (rd_x.decodeBitSync(this.choice$, 1, ls_x?.choice) === 0) {
+        if (ls_x) ls_x.midCoder.d1 = posState_x;
+        len = 8 +
+          rd_x.decodeBitTreeSync(this.midCoder$[posState_x], ls_x?.midCoder);
+      } else {
+        len = 16 + rd_x.decodeBitTreeSync(this.highCoder$, ls_x?.highCoder);
+      }
+    }
+    return len;
+  }
+
   /**
    * @const @param posState_x
    * @borrow @headconst @param rd_x

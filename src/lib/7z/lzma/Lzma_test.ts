@@ -3,6 +3,7 @@
  *    * Remove helper functions `bytesToHexString()`, `hexStringToUint8Array()`
  *    * Remove `describe("buffer handling")`
  *    * Fix "large repetitive data to trigger MoveBlock"
+ *    * Fix "decompressing corrupted data"
  *
  * @module lib/7z/lzma/Lzma_test.ts
  * @license MIT
@@ -10,9 +11,10 @@
 
 import {
   assertEquals,
+  assertGreater,
   assertInstanceOf,
   assertLess,
-  assertNotEquals,
+  fail,
 } from "@std/assert";
 import { describe, it } from "@std/testing/bdd";
 import "../../jslang.ts";
@@ -23,8 +25,9 @@ import {
   decompress,
   decompressString,
 } from "./Lzma.ts";
-import { LzmaEncodeStream } from "./LzmaEncodeStream.ts";
 import { LzmaDecodeStream } from "./LzmaDecodeStream.ts";
+import { LzmaEncodeStream } from "./LzmaEncodeStream.ts";
+import { CorruptedInput } from "./util.ts";
 /*80--------------------------------------------------------------------------*/
 
 const D_ = `${import.meta.dirname}/testdata`;
@@ -51,15 +54,18 @@ describe("basics", () => {
     const les = new LzmaEncodeStream().compress(size, 1);
     const res = await fetch(`file://${D_}/${F_}`);
     const rs_ = res.body!.pipeThrough(les);
-    const enc = await Uint8Array.fromRsU8(rs_);
+    const enc = await Uint8Array.fromRsU8ary(rs_);
 
-    const enc_0 = Deno.readFileSync(`${D_}/lorem.lzma`);
+    const enc_0 = Deno.readFileSync(`${D_}/${F_}.lzma`);
     assertEquals(enc, enc_0);
 
     const lds = new LzmaDecodeStream().decompress();
-    const res_1 = await fetch(`file://${D_}/lorem.lzma`);
+    const res_1 = await fetch(`file://${D_}/${F_}.lzma`);
     const rs_1 = res_1.body!.pipeThrough(lds);
     const dec = await Uint8Array.fromRsU8ary(rs_1);
+
+    const err = await lds.error.promise;
+    if (err) throw err;
 
     const raw = Deno.readTextFileSync(`${D_}/${F_}`);
     assertEquals(decodeABV(dec), raw);
@@ -235,24 +241,17 @@ describe("boundary condition tests", () => {
       const enc = await compressString(raw);
 
       /* Now corrupt the middle of the enc data */
-      const corruptedData = new Uint8Array(enc.length);
-      for (let i = 0; i < enc.length; i++) corruptedData[i] = enc[i];
-
+      const corruptedData = enc.slice();
+      assertGreater(corruptedData.length, 20);
       /* Corrupt data in the middle (after header) */
-      if (corruptedData.length > 10) {
-        corruptedData[7] = 255 - corruptedData[7];
-        corruptedData[8] = 255 - corruptedData[8];
-        corruptedData[9] = 255 - corruptedData[9];
-      }
+      corruptedData[17] = 255 - corruptedData[17];
+      corruptedData[18] = 255 - corruptedData[18];
+      corruptedData[19] = 255 - corruptedData[19];
 
-      /* This should either throw an error or return invalid data */
-      const dec = await decompressString(corruptedData);
-
-      /* If it doesn't throw, the result should at least be different */
-      assertNotEquals(dec, raw);
-    } catch (error) {
-      /* It's okay if it throws, as we're testing error handling */
-      assertInstanceOf(error, Error);
+      await decompressString(corruptedData);
+      fail("Should not run here!");
+    } catch (err) {
+      assertInstanceOf(err, CorruptedInput);
     }
   });
 
@@ -301,6 +300,58 @@ describe("Internal algorithm stress tests", () => {
       const dec = await decompressString(enc);
       assertEquals(dec, raw);
     }
+  });
+});
+
+describe("(De)compress large files", () => {
+  [
+    "large-random_binary",
+  ].forEach((F_x) => {
+    it(`${F_x} <-> ${F_x}.lzma`, async () => {
+      const { size } = Deno.statSync(`${D_}/${F_x}`);
+      // for (let mode = 1 as const; mode <= 9; mode++) {
+      //   const les = new LzmaEncodeStream().compress(size, mode);
+      //   const res = await fetch(`file://${D_}/${F_x}`);
+      //   const rs_ = res.body!.pipeThrough(les);
+      //   // await Deno.writeFile(`${D_}/${F_x}.${mode}.lzma`, rs_);
+      //   const enc = await Uint8Array.fromRsU8ary(rs_);
+      //   console.log(`${mode}: ${enc.byteLength}`);
+      //   /*
+      //   1: 4251419
+      //   2: 4251383
+      //   3: 4251419
+      //   4: 4251423
+      //   5: 4251423
+      //   6: 4251423
+      //   7: 4251423
+      //   8: 4251423
+      //   9: 2833408
+      //    */
+      // }
+      const les = new LzmaEncodeStream().compress(size, 1);
+      const res = await fetch(`file://${D_}/${F_x}`);
+      const rs_ = res.body!.pipeThrough(les);
+      const enc = await Uint8Array.fromRsU8ary(rs_);
+
+      const enc_0 = Deno.readFileSync(`${D_}/${F_x}.lzma`);
+      assertEquals(enc, enc_0);
+
+      // const dec = await decompress(
+      //   Deno.readFileSync(`${D_}/${F_x}.lzma`),
+      // );
+      // const { size } = Deno.statSync(`${D_}/${F_x}.lzma`);
+      // console.log({ size });
+      const lds = new LzmaDecodeStream().decompress();
+      const res_1 = await fetch(`file://${D_}/${F_x}.lzma`);
+      const rs_1 = res_1.body!.pipeThrough(lds);
+      const dec = await Uint8Array.fromRsU8ary(rs_1);
+
+      const err = await lds.error.promise;
+      if (err) throw err;
+
+      const raw = Deno.readFileSync(`${D_}/${F_x}`);
+      assertEquals(dec, raw);
+    });
   });
 });
 /*80--------------------------------------------------------------------------*/

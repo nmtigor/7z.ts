@@ -451,11 +451,11 @@ declare global {
     /** @const @param _x */
     fromArys(_x: (uint8[] | Uint8Array)[]): Uint8Array;
 
-    /**
-     * @headconst @param rs_x
-     * @const @param len_x
-     */
-    fromRsU8(rs_x: ReadableStream<uint8>, len_x?: uint): Promise<Uint8Array>;
+    // /**
+    //  * @headconst @param rs_x
+    //  * @const @param len_x
+    //  */
+    // fromRsU8(rs_x: ReadableStream<uint8>, len_x?: uint): Promise<Uint8Array>;
 
     /** @headconst @param rs_x */
     fromRsU8ary(rs_x: ReadableStream<Uint8Array>): Promise<Uint8Array>;
@@ -538,25 +538,25 @@ Uint8Array.fromArys = (_x) => {
   }
   return ret;
 };
-Uint8Array.fromRsU8 = async (rs_x, len_x = 0) => {
-  if (len_x > 0) {
-    const ret = new Uint8Array(len_x);
-    let l_ = 0;
-    for await (const chunk of rs_x) ret[l_++] = chunk;
-    return ret;
-  } else {
-    //jjjj TOCLEANUP
-    // const buf = Array.mock<uint8>(data_x.length);
-    // let l_ = 0;
-    // for await (const chunk of les.readable) buf[l_++] = chunk;
-    // buf.length = l_;
-    // return new Uint8Array(buf);
+// Uint8Array.fromRsU8 = async (rs_x, len_x = 0) => {
+//   if (len_x > 0) {
+//     const ret = new Uint8Array(len_x);
+//     let l_ = 0;
+//     for await (const chunk of rs_x) ret[l_++] = chunk;
+//     return ret;
+//   } else {
+//     //jjjj TOCLEANUP
+//     // const buf = Array.mock<uint8>(data_x.length);
+//     // let l_ = 0;
+//     // for await (const chunk of les.readable) buf[l_++] = chunk;
+//     // buf.length = l_;
+//     // return new Uint8Array(buf);
 
-    const buf: uint8[] = [];
-    for await (const chunk of rs_x) buf.push(chunk);
-    return new Uint8Array(buf);
-  }
-};
+//     const buf: uint8[] = [];
+//     for await (const chunk of rs_x) buf.push(chunk);
+//     return new Uint8Array(buf);
+//   }
+// };
 Uint8Array.fromRsU8ary = async (rs_x) => {
   const aa_: Uint8Array[] = [];
   for await (const chunk of rs_x) aa_.push(chunk);

@@ -18,9 +18,9 @@ import type { BitTree } from "./util.ts";
 /*80--------------------------------------------------------------------------*/
 
 export class RangeEncoder {
-  #stream: LzmaEncodeStream | null = null;
+  #outStream: LzmaEncodeStream | null = null;
   set outStream(_x: LzmaEncodeStream) {
-    this.#stream = _x;
+    this.#outStream = _x;
   }
 
   #rrange: uint32 = 0xFFFF_FFFF;
@@ -33,7 +33,7 @@ export class RangeEncoder {
   /**
    * Shift low helper (proper implementation) - public method for external
    * access\
-   * `in( this.#stream)`
+   * `in( this.#outStream)`
    */
   shiftLow(): void {
     const LowHi = Number(BigInt(this.#low) >> 32n) | 0;
@@ -46,7 +46,7 @@ export class RangeEncoder {
 
       let temp = this.#cache;
       do {
-        this.#stream!.writeByte(temp + LowHi);
+        this.#outStream!.writeByte(temp + LowHi);
         temp = 0xff;
       } while ((this.#cacheSize -= 1) !== 0);
 
@@ -150,7 +150,7 @@ export class RangeEncoder {
   }
 
   cleanup(): void {
-    this.#stream = null;
+    this.#outStream = null;
   }
 }
 /*80--------------------------------------------------------------------------*/

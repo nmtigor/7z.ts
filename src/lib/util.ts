@@ -96,6 +96,14 @@ export const out = <This, Return, Args extends any[]>(
 /*80-------------------------------------------------------------------------*/
 
 /**
+ * Change `name` directly on `Error` will cause many problems on Deno runtime.
+ */
+export class MyError extends Error {
+  override readonly name = this.constructor.name;
+}
+/*80-------------------------------------------------------------------------*/
+
+/**
  * `thik` will be used by CYPRESS, WDIO tesing. Setting this base class is to
  * prevent them from importing `ToolbarResizr`. WDIO tesing runs under Deno
  * environment. Importing `ToolbarResizr` there could cause strange problems.

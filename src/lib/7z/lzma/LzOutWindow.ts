@@ -13,13 +13,13 @@ import type { LzmaDecodeStream } from "./LzmaDecodeStream.ts";
 /*80--------------------------------------------------------------------------*/
 
 export class LzOutWindow {
-  windowSize: CDist = 0;
+  #windowSize: CDist = 0;
   /** Initialized in {@linkcode Create()} */
-  buffer!: uint8[];
+  #buffer!: uint8[];
 
-  #stream: LzmaDecodeStream | null = null;
+  #outStream: LzmaDecodeStream | null = null;
   set outStream(_x: LzmaDecodeStream) {
-    this.#stream = _x;
+    this.#outStream = _x;
   }
 
   /** in `buffer`, `>= streamPos` */
@@ -28,8 +28,8 @@ export class LzOutWindow {
   #streamPos: uint = 0;
 
   Create(windowSize: CDist) {
-    this.windowSize = windowSize;
-    this.buffer = Array.mock(windowSize);
+    this.#windowSize = windowSize;
+    this.#buffer = Array.mock(windowSize);
   }
 
   Init() {
@@ -38,52 +38,60 @@ export class LzOutWindow {
   }
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
-  CopyBlock(dist: CDist, len: uint): void {
-    let pos = this.#pos - dist - 1;
-    if (pos < 0) pos += this.windowSize;
+  /**
+   * @const @param dist_x
+   * @param len_x
+   */
+  CopyBlock(dist_x: CDist, len_x: uint): void {
+    let pos = this.#pos - dist_x - 1;
+    if (pos < 0) pos += this.#windowSize;
 
-    for (; len--;) {
-      if (pos >= this.windowSize) pos = 0;
+    for (; len_x--;) {
+      if (pos >= this.#windowSize) pos = 0;
 
-      this.buffer[this.#pos] = this.buffer[pos];
+      this.#buffer[this.#pos] = this.#buffer[pos];
       this.#pos += 1;
       pos += 1;
 
-      if (this.#pos >= this.windowSize) this.flush();
+      if (this.#pos >= this.#windowSize) this.flush();
     }
   }
 
-  /** Put a single byte into the window */
-  PutByte(byte: uint8): void {
-    this.buffer[this.#pos] = byte;
+  /**
+   * Put a single byte into the window
+   * @const @param byte_x
+   */
+  PutByte(byte_x: uint8): void {
+    this.#buffer[this.#pos] = byte_x;
     this.#pos++;
-    if (this.#pos >= this.windowSize) this.flush();
+    if (this.#pos >= this.#windowSize) this.flush();
   }
 
   /**
    * Get a byte from a relative position
+   * @const
    * @const @param dist_x
    */
   GetByte(dist_x: CDist): uint8 {
     let pos = this.#pos - dist_x - 1;
     if (pos < 0) {
-      pos += this.windowSize;
+      pos += this.#windowSize;
     }
-    return this.buffer[pos];
+    return this.#buffer[pos];
   }
 
   flush(): void {
     const size = this.#pos - this.#streamPos;
     if (!size) return;
 
-    this.#stream?.writeFrom(this.buffer, this.#streamPos, size);
+    this.#outStream?.writeFrom(this.#buffer, this.#streamPos, size);
 
-    if (this.#pos >= this.windowSize) this.#pos = 0;
+    if (this.#pos >= this.#windowSize) this.#pos = 0;
     this.#streamPos = this.#pos;
   }
 
   cleanup(): void {
-    this.#stream = null;
+    this.#outStream = null;
   }
 }
 /*80--------------------------------------------------------------------------*/

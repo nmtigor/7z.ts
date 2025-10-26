@@ -404,11 +404,8 @@ export class LzmaEncoder {
     let repMaxIndex = 0;
     for (let i = 0; i < 4; ++i) {
       this.#reps[i] = this.#repDistances[i];
-      this.#repLens[i] = this.#matchFinder.getMatchLen(
-        -this.#extraPos48,
-        this.#reps[i],
-        kMatchMaxLen,
-      );
+      this.#repLens[i] = this.#matchFinder
+        .getMatchLen(-1, this.#reps[i], kMatchMaxLen);
 
       if (this.#repLens[i] > this.#repLens[repMaxIndex]) {
         repMaxIndex = i;

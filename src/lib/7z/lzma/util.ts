@@ -8,8 +8,11 @@
  ******************************************************************************/
 
 import type { uint, uint32, uint8 } from "@fe-lib/alias.ts";
+import "../../jslang.ts";
 import type { CLen, CProb, CProbPrice, CState } from "./alias.ts";
 import { kNumLenToPosStates, PROB_INIT_VAL } from "./alias.ts";
+import type { ProbState3D } from "./ChunkState.ts";
+import { MyError } from "../../util.ts";
 /*80--------------------------------------------------------------------------*/
 
 export class BitTree {
@@ -101,9 +104,12 @@ export function initProbs(probs: CProb[]): void {
 /**
  * Get length to position state mapping
  * @const @param len_x
+ * @headconst @param s3_x
  */
-export const getLenToPosState = (len_x: CLen): uint8 => {
-  return Math.min(len_x, kNumLenToPosStates - 1);
+export const getLenToPosState = (len_x: CLen, s3_x?: ProbState3D): uint8 => {
+  const s_ = Math.min(len_x, kNumLenToPosStates - 1);
+  if (s3_x) s3_x.d1 = s_;
+  return s_;
 };
 
 export const UpdateState_Literal = (state: CState): CState =>
@@ -317,4 +323,31 @@ export function createFastPos(): uint8[] {
 21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
 21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,
 */
+/*80--------------------------------------------------------------------------*/
+
+export class TruncatedInput extends MyError {
+  constructor() {
+    super("Truncated input");
+  }
+}
+
+export class BadState extends MyError {
+  constructor() {
+    super("Bad state");
+  }
+}
+
+export class CorruptedInput extends MyError {
+  constructor() {
+    super("Corrupted input");
+  }
+}
+
+export class NoInput extends MyError {
+  constructor() {
+    super("No input");
+  }
+}
+
+export class ExceedSize extends MyError {}
 /*80--------------------------------------------------------------------------*/

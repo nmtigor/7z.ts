@@ -33,6 +33,8 @@ export abstract class LzmaCodeStream {
   // readonly writer;
   /* ~ */
 
+  readonly error = Promise.withResolvers<Error | null>();
+
   constructor() {
     this.writable = new WritableStream<Uint8Array>(
       {
@@ -74,25 +76,24 @@ export abstract class LzmaCodeStream {
     }
     if (this.wsDone$) return;
 
+    const len_1 = Math.min(this.tsLen$, chunk_x.length);
     /* actural sink */ if (this.tsLen$ > 0) {
-      const len_1 = Math.min(this.tsLen$, chunk_x.length);
       const LEN = this.tsOfs$ + len_1;
       for (let i = 0, j = this.tsOfs$; j < LEN; ++i, ++j) {
         this.tsBuf$![j] = chunk_x[i];
       }
       this.tsOfs$ = LEN;
       this.tsLen$ -= len_1;
-
-      /* save the rest */ if (len_1 < chunk_x.length) {
-        this.wsU8a$ = chunk_x.subarray(len_1);
-        this.wsOfs$ = 0;
-      }
-      // console.log(`${trace.dent}`, {
-      //   tsOfs: this.tsOfs$,
-      //   tsLen: this.tsLen$,
-      //   tsLEN: this.tsLEN$,
-      // }, `wsU8a$.length: ${this.wsU8a$?.length}`);
     }
+    /* save the rest */ if (len_1 < chunk_x.length) {
+      this.wsU8a$ = chunk_x.subarray(len_1);
+      this.wsOfs$ = 0;
+    }
+    // console.log(`${trace.dent}`, {
+    //   tsOfs: this.tsOfs$,
+    //   tsLen: this.tsLen$,
+    //   tsLEN: this.tsLEN$,
+    // }, `wsU8a$.length: ${this.wsU8a$?.length}`);
 
     if (this.tsLen$ === 0) {
       // this.tsBuf$ = undefined;
