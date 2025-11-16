@@ -7,16 +7,17 @@
  * @license MIT
  ******************************************************************************/
 
-import { _TRACE, INOUT } from "@fe-src/preNs.ts";
-import type { uint, uint8 } from "../../alias.ts";
+import { _TRACE, INOUT } from "../../../preNs.ts";
+import type { uint, uint32, uint8 } from "../../alias.ts";
 import "../../jslang.ts";
 import { assert, bind } from "../../util.ts";
 import { trace, traceOut } from "../../util/trace.ts";
+import { InStream } from "../InStream.ts";
+import { ExceedSize, NoInput } from "../util.ts";
 import { MAX_UINT48 } from "./alias.ts";
 import { DecoderChunker } from "./CoderChunker.ts";
-import { LzmaCodeStream } from "./LzmaCodeStream.ts";
 import { LzmaDecoder } from "./LzmaDecoder.ts";
-import { CorruptedInput, ExceedSize, NoInput, TruncatedInput } from "./util.ts";
+import { CorruptedInput, TruncatedInput } from "./util.ts";
 /*80--------------------------------------------------------------------------*/
 
 /** @final */
@@ -83,52 +84,67 @@ class RedByts {
 }
 /*64----------------------------------------------------------*/
 
+type CtorP_ = {
+  /** `5` */
+  props: uint8[];
+  /** `< 2**48` */
+  outSize?: uint | -1;
+};
+
 /** @final */
-export class LzmaDecodeStream extends LzmaCodeStream {
+export class LzmaDecodeStream extends InStream {
+  readonly #ctorp: CtorP_ | undefined;
+
   readonly #decoder = new LzmaDecoder();
   readonly #chunker = new DecoderChunker(this.#decoder);
 
   /* writable */
   readonly #redByts = new RedByts(32, "#redByts");
 
-  /** transform stream */
-  get #ts(): Promise<uint> {
-    /*#static*/ if (INOUT) {
-      assert(!this.tsCap$);
-    }
-    this.tsCap$ = Promise.withResolvers<uint8>();
-    /* Let `writable` do the rest. */
-    this.wsCap$?.resolve();
-    this.wsCap$ = undefined;
-    return this.tsCap$.promise;
-  }
-  /* ~ */
-
   /* readable */
   #rsEnque: ((chunk_x: Uint8Array) => void) | undefined;
   #rsClose!: () => void;
 
+  /** `< 2**48` */
   #outSize: uint | -1 = 0;
+  #enqSize: uint = 0;
+  checkSize(): boolean {
+    return this.#outSize === -1 || this.#outSize === this.#enqSize;
+  }
 
   readonly readable;
   /* ~ */
 
-  constructor() {
+  /** @const @param _x */
+  constructor(_x?: CtorP_) {
+    /*#static*/ if (INOUT) {
+      if (_x) assert(_x.props.length === 5);
+    }
     super();
+    this.#ctorp = _x;
 
     this.readable = new ReadableStream<Uint8Array>({
       start: this._rsStart,
       pull: this._rsPull,
       cancel: this._rsCancel,
     });
+
+    this.#decompress();
   }
+
+  // static async from(_x: string | URL) {
+  //   const lds = new LzmaDecodeStream();
+  //   const res = await fetch(_x);
+  //   res.body!.pipeThrough(lds)
+  //   return lds;
+  // }
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
   /**
    * @throw {@linkcode NoInput}
    * @throw {@linkcode ExceedSize}
    */
-  readByteSync(): uint8 | -1 {
+  readByte(): uint8 | -1 {
     let ret = this.#redByts.restore();
     if (ret !== undefined) return ret;
 
@@ -144,10 +160,14 @@ export class LzmaDecodeStream extends LzmaCodeStream {
     throw new NoInput();
   }
 
-  /** @throw {@linkcode ExceedSize} */
   #readByteImpl(): uint8 | -1 | undefined {
     if (this.wsU8a$ && this.wsOfs$ < this.wsU8a$.length) {
       // console.log(`${trace.dent}wsOfs$: ${this.wsOfs$}`);
+      // console.log(
+      //   `${trace.dent}wsU8a$[${this.wsOfs$}]: 0x${
+      //     this.wsU8a$[this.wsOfs$].toString(16)
+      //   }`,
+      // );
       return this.wsU8a$[this.wsOfs$++];
     }
 
@@ -157,14 +177,16 @@ export class LzmaDecodeStream extends LzmaCodeStream {
   }
 
   // @traceOut(_TRACE)
-  async readByte(): Promise<uint8 | -1> {
+  async readByteAsync(): Promise<uint8 | -1> {
     // /*#static*/ if (_TRACE) {
-    //   console.log(`${trace.indent}>>>>>>> LzmaDecodeStream.readByte() >>>>>>>`);
+    //   console.log(
+    //     `${trace.indent}>>>>>>> ${this._type_}.readByteAsync() >>>>>>>`,
+    //   );
     // }
     const ret = this.#readByteImpl();
     if (ret !== undefined) return ret;
 
-    await this.#ts;
+    await this.chunk$;
     return this.#readByteImpl()!;
   }
   /*49|||||||||||||||||||||||||||||||||||||||||||*/
@@ -173,9 +195,12 @@ export class LzmaDecodeStream extends LzmaCodeStream {
   @traceOut(_TRACE)
   private _rsStart(rc_x: ReadableStreamDefaultController<Uint8Array>) {
     /*#static*/ if (_TRACE) {
-      console.log(`${trace.indent}>>>>>>> LzmaDecodeStream._rsStart() >>>>>>>`);
+      console.log(`${trace.indent}>>>>>>> ${this._type_}._rsStart() >>>>>>>`);
     }
-    this.#rsEnque = (_y) => rc_x.enqueue(_y);
+    this.#rsEnque = (_y) => {
+      this.#enqSize += _y.length;
+      rc_x.enqueue(_y);
+    };
     this.#rsClose = () => rc_x.close();
   }
 
@@ -183,7 +208,7 @@ export class LzmaDecodeStream extends LzmaCodeStream {
   @traceOut(_TRACE)
   private _rsPull(_rc_x: ReadableStreamDefaultController<Uint8Array>) {
     /*#static*/ if (_TRACE) {
-      console.log(`${trace.indent}>>>>>>> LzmaDecodeStream._rsPull() >>>>>>>`);
+      console.log(`${trace.indent}>>>>>>> ${this._type_}._rsPull() >>>>>>>`);
     }
     ///
   }
@@ -193,7 +218,7 @@ export class LzmaDecodeStream extends LzmaCodeStream {
   private _rsCancel(r_x: unknown) {
     /*#static*/ if (_TRACE) {
       console.log(
-        `${trace.indent}>>>>>>> LzmaDecodeStream._rsCancel() >>>>>>>`,
+        `${trace.indent}>>>>>>> ${this._type_}._rsCancel() >>>>>>>`,
       );
       console.log(`${trace.dent}reason: ${r_x}`);
     }
@@ -210,7 +235,7 @@ export class LzmaDecodeStream extends LzmaCodeStream {
   writeFrom(buf_x: uint8[], ofs_x: uint, len_x: uint) {
     /*#static*/ if (_TRACE) {
       console.log(
-        `${trace.indent}>>>>>>> LzmaDecodeStream.writeFrom() >>>>>>>`,
+        `${trace.indent}>>>>>>> ${this._type_}.writeFrom() >>>>>>>`,
       );
       console.log(`${trace.dent}`, { ofs_x, len_x });
     }
@@ -219,33 +244,40 @@ export class LzmaDecodeStream extends LzmaCodeStream {
   /*49|||||||||||||||||||||||||||||||||||||||||||*/
 
   async #initDecode(): Promise<void> {
-    const prop_a: uint8[] = [];
-    for (let i = 0; i < 5; ++i) {
-      const r_: uint8 = await this.readByte();
-      if (r_ === -1) throw new TruncatedInput();
-      prop_a[i] = r_;
+    let props = this.#ctorp?.props;
+    if (!props) {
+      props = [];
+      for (let i = 0; i < 5; ++i) {
+        const r_: uint8 = await this.readByteAsync();
+        if (r_ === -1) throw new TruncatedInput();
+        props[i] = r_;
+      }
     }
-    if (!this.#decoder.setDecoderProperties(prop_a)) {
+    if (!this.#decoder.setDecoderProperties(props)) {
       throw new CorruptedInput();
     }
 
-    let hex_length = "";
-    for (let i = 0; i < 8; ++i) {
-      let r_: uint8 | string = await this.readByte();
-      if (r_ === -1) throw new TruncatedInput();
-      r_ = r_.toString(16);
-      if (r_.length === 1) r_ = "0" + r_;
-      hex_length = `${r_}${hex_length}`;
-    }
-    /* Was the length set in the header (if it was compressed from a stream, the
-    length is all f"s). */
-    if (/^0+$|^f+$/i.test(hex_length)) {
-      this.#outSize = -1;
+    if (this.#ctorp) {
+      this.#outSize = this.#ctorp.outSize ?? -1;
     } else {
-      /* NOTE: If there is a problem with the decoder because of the length,
+      let hex_length = "";
+      for (let i = 0; i < 8; ++i) {
+        let r_: uint8 | string = await this.readByteAsync();
+        if (r_ === -1) throw new TruncatedInput();
+        r_ = r_.toString(16);
+        if (r_.length === 1) r_ = "0" + r_;
+        hex_length = `${r_}${hex_length}`;
+      }
+      /* Was the length set in the header (if it was compressed from a stream,
+      the length is all f"s). */
+      if (/^0+$|^f+$/i.test(hex_length)) {
+        this.#outSize = -1;
+      } else {
+        /* NOTE: If there is a problem with the decoder because of the length,
       you can always set the length to -1 (N1_longLit) which means unknown. */
-      const tmp_length = parseInt(hex_length, 16);
-      this.#outSize = tmp_length > MAX_UINT48 ? -1 : tmp_length;
+        const tmp_length = parseInt(hex_length, 16);
+        this.#outSize = tmp_length <= MAX_UINT48 ? tmp_length : -1;
+      }
     }
 
     this.#decoder.inStream = this;
@@ -258,15 +290,16 @@ export class LzmaDecodeStream extends LzmaCodeStream {
   }
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
-  async #process(): Promise<void> {
+  async #processAsync(): Promise<void> {
     await this.#initDecode();
 
-    // while (await this.#chunker.processChunk());
+    // while (await this.#chunker.processChunkAsync());
+    // console.log(this.#chunker._info_);
 
     let alive = false;
     do {
       try {
-        alive = this.#chunker.processChunkSync();
+        alive = this.#chunker.processChunk();
         this.#redByts.reset_RedByts();
         // if (117628 <= this.#chunker._nSync_ && this.#chunker._nSync_ < 117632) {
         // console.log(`${this.#chunker}`);
@@ -279,7 +312,14 @@ export class LzmaDecodeStream extends LzmaCodeStream {
           throw err;
         }
 
-        await this.#ts;
+        await this.chunk$;
+        /* Inputs are used up, but `.processChunk()` above does not set `alive`
+        to `false` yet (which may happen e.g. if `#chunk.outSize === -1`), we
+        stop processing. */ if (this.wsDone$) {
+          this.#chunker.cleanup();
+          break;
+        }
+
         // console.log(
         //   `%crun here: wsU8a$.length: ${this.wsU8a$?.length}, wsOfs$: ${this.wsOfs$}`,
         //   `color:yellow`,
@@ -292,17 +332,20 @@ export class LzmaDecodeStream extends LzmaCodeStream {
     // console.log(`${this.#chunker}`);
   }
 
-  decompress(): this {
-    this.#process().then(() => {
-      // console.log(`%crun here: LzmaDecodeStream.#process().then()`, `color:orange`);
+  #decompress(): void {
+    this.#processAsync().then(() => {
+      // console.log(`%crun here: ${this._type_}.#processAsync().then()`, `color:orange`);
       this.error.resolve(null);
     }).catch(this.error.resolve)
       .finally(() => {
         this.#rsEnque = undefined;
         this.#rsClose();
+        // console.log(
+        //   `%crun here: ${this._type_}.#processAsync().finally()`,
+        //   `color:orange`,
+        // );
         this.cleanup();
       });
-    return this;
   }
 }
 /*80--------------------------------------------------------------------------*/

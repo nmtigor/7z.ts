@@ -75,7 +75,7 @@ export class LitDecoder extends LitCoder {
     const numStates = 1 << (lc + lp);
     this.#coders = Array.from(
       { length: numStates },
-      () => ({ decoders: Array.mock(LZMA_LIT_SIZE) }),
+      () => ({ decoders: Array.sparse(LZMA_LIT_SIZE) }),
     );
   }
 
@@ -88,7 +88,7 @@ export class LitDecoder extends LitCoder {
 /*64----------------------------------------------------------*/
 
 class LitSubCoder_ implements ILitSubCoder {
-  readonly #coders = Array.mock(LZMA_LIT_SIZE, PROB_INIT_VAL);
+  readonly #coders = Array.sparse(LZMA_LIT_SIZE, PROB_INIT_VAL);
 
   /** @implement */
   get decoders(): CProb[] {

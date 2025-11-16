@@ -40,7 +40,7 @@ export class RangeDecoder {
   /** `in( this.#inStream)` */
   async Init(): Promise<void> {
     for (let i = 0; i < 5; ++i) {
-      this.#Code = this.#Code << 8 | await this.#inStream!.readByte();
+      this.#Code = this.#Code << 8 | await this.#inStream!.readByteAsync();
     }
   }
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
@@ -54,7 +54,7 @@ export class RangeDecoder {
     // if (this.#Range < kTopValue) {
     if (!(this.#Range & -kTopValue)) {
       this.#Range <<= 8;
-      this.#Code = this.#Code << 8 | this.#inStream!.readByteSync();
+      this.#Code = this.#Code << 8 | this.#inStream!.readByte();
     }
   }
 
@@ -63,7 +63,7 @@ export class RangeDecoder {
     // if (this.#Range < kTopValue) {
     if (!(this.#Range & -kTopValue)) {
       this.#Range <<= 8;
-      this.#Code = this.#Code << 8 | await this.#inStream!.readByte();
+      this.#Code = this.#Code << 8 | await this.#inStream!.readByteAsync();
     }
   }
 
@@ -75,7 +75,7 @@ export class RangeDecoder {
    * @throw {@linkcode NoInput}
    * @throw {@linkcode ExceedSize}
    */
-  decodeBitSync(probs_x: CProb[], index_x: uint, sn_x?: ProbStateND): 0 | 1 {
+  decodeBit(probs_x: CProb[], index_x: uint, sn_x?: ProbStateND): 0 | 1 {
     let prob = probs_x[index_x];
     const bound = (this.#Range >>> kNumBitModelTotalBits) * prob;
     let symbol: 0 | 1;
@@ -101,7 +101,7 @@ export class RangeDecoder {
    * @borrow @headconst @param probs_x
    * @const @param index_x
    */
-  async decodeBit(probs_x: CProb[], index_x: uint): Promise<0 | 1> {
+  async decodeBitAsync(probs_x: CProb[], index_x: uint): Promise<0 | 1> {
     let prob = probs_x[index_x];
     const bound = (this.#Range >>> kNumBitModelTotalBits) * prob;
     let symbol: 0 | 1;
@@ -173,7 +173,7 @@ export class RangeDecoder {
   ): uint32 {
     let m_ = 1;
     for (let i = numBits_x; i--;) {
-      m_ = (m_ << 1) + this.decodeBitSync(probs_x, m_, sn_x);
+      m_ = (m_ << 1) + this.decodeBit(probs_x, m_, sn_x);
     }
     return m_ - (1 << numBits_x);
   }
@@ -185,7 +185,7 @@ export class RangeDecoder {
   async #decodeBits(probs_x: CProb[], numBits_x: uint8): Promise<uint32> {
     let m_ = 1;
     for (let i = numBits_x; i--;) {
-      m_ = (m_ << 1) + await this.decodeBit(probs_x, m_);
+      m_ = (m_ << 1) + await this.decodeBitAsync(probs_x, m_);
     }
     return m_ - (1 << numBits_x);
   }
@@ -195,12 +195,12 @@ export class RangeDecoder {
    * @headconst @param sn_x
    * @throw {@linkcode NoInput}
    */
-  decodeBitTreeSync(bitTree_x: BitTree, sn_x?: ProbStateND): uint32 {
+  decodeBitTree(bitTree_x: BitTree, sn_x?: ProbStateND): uint32 {
     return this.#decodeBitsSync(bitTree_x.Probs, bitTree_x.NumBits, sn_x);
   }
 
   /** @borrow @headconst @param bitTree_x */
-  async decodeBitTree(bitTree_x: BitTree): Promise<uint32> {
+  async decodeBitTreeAsync(bitTree_x: BitTree): Promise<uint32> {
     return await this.#decodeBits(bitTree_x.Probs, bitTree_x.NumBits);
   }
 
@@ -221,7 +221,7 @@ export class RangeDecoder {
     let m_ = 1;
     let symbol = 0;
     for (let i = 0; i < numBits_x; ++i) {
-      const bit = this.decodeBitSync(probs_x, startIndex_x + m_, sn_x);
+      const bit = this.decodeBit(probs_x, startIndex_x + m_, sn_x);
       m_ = m_ << 1 | bit;
       symbol |= bit << i;
     }
@@ -241,7 +241,7 @@ export class RangeDecoder {
     let m_ = 1;
     let symbol = 0;
     for (let i = 0; i < numBits_x; ++i) {
-      const bit = await this.decodeBit(probs_x, startIndex_x + m_);
+      const bit = await this.decodeBitAsync(probs_x, startIndex_x + m_);
       m_ = m_ << 1 | bit;
       symbol |= bit << i;
     }

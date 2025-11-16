@@ -1,6 +1,6 @@
 /** 80**************************************************************************
  * Ref. [[vscode-languageserver-node]/client/src/common/utils/is.ts](https://github.com/microsoft/vscode-languageserver-node/blob/main/client/src/common/utils/is.ts)
- *    * Add `int()`
+ *    * Add `int()`, `bigint()`
  *    * Improve `array()`, `typedArray()`, `thenable()`
  *    * Remove `asPromise()`
  *
@@ -34,6 +34,11 @@ export function num(_x: unknown): _x is number {
 /** @const @param _x */
 export function int(_x: unknown): _x is int {
   return Number.isInteger(_x);
+}
+
+/** @const @param _x */
+export function bigint(_x: unknown): _x is bigint {
+  return typeof _x === "bigint";
 }
 
 /** @const @param _x */

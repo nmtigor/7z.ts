@@ -21,7 +21,7 @@ export class BitTree {
 
   constructor(NumBits: uint8) {
     this.NumBits = NumBits;
-    this.Probs = Array.mock<CProb>(1 << NumBits);
+    this.Probs = Array.sparse<CProb>(1 << NumBits);
   }
 
   Init() {
@@ -342,12 +342,4 @@ export class CorruptedInput extends MyError {
     super("Corrupted input");
   }
 }
-
-export class NoInput extends MyError {
-  constructor() {
-    super("No input");
-  }
-}
-
-export class ExceedSize extends MyError {}
 /*80--------------------------------------------------------------------------*/

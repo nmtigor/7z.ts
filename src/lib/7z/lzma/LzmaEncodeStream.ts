@@ -16,13 +16,15 @@ import type { CompressionMode, Mode } from "./alias.ts";
 import { MODES } from "./alias.ts";
 import { EncoderChunker } from "./CoderChunker.ts";
 import { LzmaEncoder } from "./LzmaEncoder.ts";
-import { LzmaCodeStream } from "./LzmaCodeStream.ts";
+import { InStream } from "../InStream.ts";
 /*80--------------------------------------------------------------------------*/
+
+type LzmaEncodeStreamCtorP = { size?: uint; mode?: CompressionMode };
 
 const RsU8aSize = 1024;
 
 /** @final */
-export class LzmaEncodeStream extends LzmaCodeStream {
+export class LzmaEncodeStream extends InStream {
   readonly #encoder = new LzmaEncoder();
   readonly #chunker = new EncoderChunker(this.#encoder);
 
@@ -36,7 +38,8 @@ export class LzmaEncodeStream extends LzmaCodeStream {
   readonly readable;
   /* ~ */
 
-  constructor() {
+  /** @headconst @param _x */
+  constructor(_x?: LzmaEncodeStreamCtorP) {
     super();
 
     this.readable = new ReadableStream<Uint8Array>(
@@ -47,7 +50,16 @@ export class LzmaEncodeStream extends LzmaCodeStream {
       },
       // new ByteLengthQueuingStrategy({ highWaterMark: 16 * 1024 }),
     );
+
+    this.#compress(_x?.size ?? 0, _x?.mode ?? 5);
   }
+
+  // static async from(_x: string | URL, o_x?: LzmaEncodeStreamCtorP) {
+  //   const les = new LzmaEncodeStream(o_x);
+  //   const res = await fetch(_x);
+  //   res.body!.pipeThrough(les);
+  //   return les;
+  // }
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
   /**
@@ -59,7 +71,7 @@ export class LzmaEncodeStream extends LzmaCodeStream {
   @traceOut(_TRACE)
   async readTo(buf_x: uint8[], ofs_x: uint, len_x: uint): Promise<uint> {
     /*#static*/ if (_TRACE) {
-      console.log(`${trace.indent}>>>>>>> LzmaEncodeStream.readTo() >>>>>>>`);
+      console.log(`${trace.indent}>>>>>>> ${this._type_}.readTo() >>>>>>>`);
       console.log(`${trace.dent}`, { ofs_x, len_x });
     }
     if (this.wsU8a$ && this.wsOfs$ < this.wsU8a$.length) {
@@ -91,7 +103,7 @@ export class LzmaEncodeStream extends LzmaCodeStream {
     this.tsOfs$ = ofs_x;
     this.tsLen$ = len_x;
     this.tsLEN$ = len_x;
-    /* Let `writable` do the rest. */
+    /* let `writable` do the rest */
     this.wsCap$?.resolve();
     this.wsCap$ = undefined;
     return await this.tsCap$.promise;
@@ -102,7 +114,7 @@ export class LzmaEncodeStream extends LzmaCodeStream {
   @traceOut(_TRACE)
   private _rsStart(rc_x: ReadableStreamDefaultController<Uint8Array>) {
     /*#static*/ if (_TRACE) {
-      console.log(`${trace.indent}>>>>>>> LzmaEncodeStream._rsStart() >>>>>>>`);
+      console.log(`${trace.indent}>>>>>>> ${this._type_}._rsStart() >>>>>>>`);
     }
     this.#rsEnque = (_y) => rc_x.enqueue(_y);
     this.#rsClose = () => rc_x.close();
@@ -112,7 +124,7 @@ export class LzmaEncodeStream extends LzmaCodeStream {
   @traceOut(_TRACE)
   private _rsPull(_rc_x: ReadableStreamDefaultController<Uint8Array>) {
     /*#static*/ if (_TRACE) {
-      console.log(`${trace.indent}>>>>>>> LzmaEncodeStream._rsPull() >>>>>>>`);
+      console.log(`${trace.indent}>>>>>>> ${this._type_}._rsPull() >>>>>>>`);
     }
     ///
   }
@@ -122,7 +134,7 @@ export class LzmaEncodeStream extends LzmaCodeStream {
   private _rsCancel(r_x: unknown) {
     /*#static*/ if (_TRACE) {
       console.log(
-        `${trace.indent}>>>>>>> LzmaEncodeStream._rsCancel() >>>>>>>`,
+        `${trace.indent}>>>>>>> ${this._type_}._rsCancel() >>>>>>>`,
       );
       console.log(`${trace.dent}reason: ${r_x}`);
     }
@@ -173,18 +185,18 @@ export class LzmaEncodeStream extends LzmaCodeStream {
   }
   /*49|||||||||||||||||||||||||||||||||||||||||||*/
 
-  async #process(): Promise<void> {
-    while (await this.#chunker.processChunk());
+  async #processAsync(): Promise<void> {
+    while (await this.#chunker.processChunkAsync());
   }
 
   /**
    * @const @param size_x
    * @const @param mode_x
    */
-  compress(size_x: uint, mode_x: CompressionMode = 5): this {
+  #compress(size_x: uint, mode_x: CompressionMode): this {
     this.#initEncode(size_x, MODES[mode_x]);
-    this.#process().then(() => {
-      // console.log(`%crun here: LzmaEncodeStream.#process().then()`, `color:orange`);
+    this.#processAsync().then(() => {
+      // console.log(`%crun here: ${this._type_}.#processAsync().then()`, `color:orange`);
       this.error.resolve(null);
     }).catch(this.error.resolve)
       .finally(() => {
@@ -198,7 +210,7 @@ export class LzmaEncodeStream extends LzmaCodeStream {
   @traceOut(_TRACE)
   override cleanup() {
     /*#static*/ if (_TRACE) {
-      console.log(`${trace.indent}>>>>>>> LzmaEncodeStream.cleanup() >>>>>>>`);
+      console.log(`${trace.indent}>>>>>>> ${this._type_}.cleanup() >>>>>>>`);
     }
     super.cleanup();
     if (this.#rsOfs > 0) {

@@ -157,6 +157,8 @@ export class MatchFinder {
   /* ~ */
 
   #matchMaxLen: CLen = 0;
+  //jjjj TOCLEANUP
+  // cutValue: uint8 = 0;
 
   readonly matchDistances: (CLen | CDist)[] = [];
 
@@ -174,6 +176,8 @@ export class MatchFinder {
     if (dictSize_x >= DICTSIZE_THRESHOLD) return;
 
     this.#matchMaxLen = numFastBytes_x;
+    //jjjj TOCLEANUP
+    // this.cutValue = 0x10 + (numFastBytes_x >> 1);
 
     const windowReservSize =
       ~~((dictSize_x + keepAddBufferBefore + numFastBytes_x +
@@ -186,7 +190,7 @@ export class MatchFinder {
 
     /* reserve `#pos === 0` */
     this.#cyclicBufferSize = dictSize_x + 1;
-    this.#son = Array.mock(this.#cyclicBufferSize * 2);
+    this.#son = Array.sparse(this.#cyclicBufferSize * 2);
 
     if (this.#HASH_ARRAY) {
       this.#calcHashSize(dictSize_x);
@@ -194,7 +198,7 @@ export class MatchFinder {
       this.#hashMask = 0;
       this.#hashSizeSum = 0x1_0000;
     }
-    this.#hash = Array.mock(this.#hashSizeSum);
+    this.#hash = Array.sparse(this.#hashSizeSum);
   }
 
   /** `in( this.#inStream)` */
@@ -224,7 +228,7 @@ export class MatchFinder {
     this.#keepSizeAfter = keepSizeAfter_x;
     const blockSize = keepSizeBefore_x + keepSizeAfter_x + keepSizeReserv_x;
 
-    this.#bufferBase = Array.mock(blockSize);
+    this.#bufferBase = Array.sparse(blockSize);
     this.#blockSize = blockSize;
 
     this.#ptToLastSafePos = this.#blockSize - keepSizeAfter_x;
@@ -429,9 +433,15 @@ export class MatchFinder {
         }
       }
     }
+    //jjjj TOCLEANUP
+    // let count = mf_.cutValue;
 
     while (1) {
+      //jjjj TOCLEANUP
+      // if (curMatchPos <= matchMinPos || mf_.cutValue === 0) {
       if (curMatchPos <= matchMinPos) {
+        //jjjj TOCLEANUP
+        // count -= 1;
         this.#son[ptr0] = this.#son[ptr1] = 0;
         break;
       }
@@ -523,9 +533,15 @@ export class MatchFinder {
       let ptr0 = ptr1 + 1;
       let len1 = this.#kNumHashDirectBytes;
       let len0 = len1;
+      //jjjj TOCLEANUP
+      // let count = this.cutValue;
 
       while (1) {
+        //jjjj TOCLEANUP
+        // if (curMatchPos <= matchMinPos || this.cutValue === 0) {
         if (curMatchPos <= matchMinPos) {
+          //jjjj TOCLEANUP
+          // count -= 1;
           this.#son[ptr0] = this.#son[ptr1] = 0;
           break;
         }

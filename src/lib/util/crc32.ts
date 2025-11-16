@@ -8,6 +8,7 @@
  ******************************************************************************/
 
 import type { uint32 } from "../alias.ts";
+import * as Is from "./is.ts";
 /*80--------------------------------------------------------------------------*/
 
 /** `uint32[256]` */
@@ -50,10 +51,22 @@ export const CRC32_TABLE = /* deno-fmt-ignore */ [
  * @const @param data_x
  * @const @param prev_x
  */
-export const crc32 = (data_x: Uint8Array, prev_x: uint32 = 0): uint32 => {
+export const calcCRC32 = (
+  data_x: Uint8Array | Uint8Array[],
+  prev_x: uint32 = 0,
+): uint32 => {
   let crc = ~~prev_x ^ -1;
-  for (let n = 0, LEN = data_x.length; n < LEN; n++) {
-    crc = CRC32_TABLE[(crc ^ data_x[n]) & 0xff] ^ (crc >>> 8);
+  if (Is.array(data_x)) {
+    for (const u8a of data_x) {
+      for (const v of u8a) {
+        crc = CRC32_TABLE[(crc ^ v) & 0xff] ^ (crc >>> 8);
+      }
+    }
+  } else {
+    for (const v of data_x) {
+      crc = CRC32_TABLE[(crc ^ v) & 0xff] ^ (crc >>> 8);
+    }
   }
   return (crc ^ -1) >>> 0;
-}; /*80--------------------------------------------------------------------------*/
+};
+/*80--------------------------------------------------------------------------*/

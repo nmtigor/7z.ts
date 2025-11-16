@@ -7,7 +7,7 @@ import type { uint, uint16, uint32, uint8 } from "../../alias.ts";
 import type { CDist, CProb, CState } from "./alias.ts";
 import type { ILitSubCoder } from "./LitCoder.ts";
 import type { BitTree } from "./util.ts";
-import { ExceedSize } from "./util.ts";
+import { ExceedSize } from "../util.ts";
 /*80--------------------------------------------------------------------------*/
 
 // const dynamic_ = false;
@@ -87,7 +87,7 @@ class ProbState2D extends ProbStateND {
   }
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
-  /** @implements */
+  /** @implement */
   ad(probs_x: CProb[], idx_x: uint16, prob_x: CProb): void {
     if (probs_x[idx_x] === prob_x) return;
 
@@ -142,7 +142,7 @@ export class ProbState3D extends ProbStateND {
   }
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
-  /** @implements */
+  /** @implement */
   ad(probs_x: CProb[], idx_x: uint16, prob_x: CProb): void {
     if (probs_x[idx_x] === prob_x) return;
 
@@ -224,13 +224,9 @@ export class LenState {
   }
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
-  get #info() {
-    return `${this._name_} (${this.constructor.name})`;
-  }
-
   /** For testing only */
   toString() {
-    return `${this.#info}:
+    return `${this._name_}:
     ${this.choice}
     ${this.lowCoder}
     ${this.midCoder}

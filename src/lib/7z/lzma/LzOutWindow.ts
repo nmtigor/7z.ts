@@ -27,9 +27,14 @@ export class LzOutWindow {
   /** in `buffer`, `<= pos` */
   #streamPos: uint = 0;
 
+  //jjjj TOCLEANUP
+  // constructor(writer?: LzmaDecodeStream) {
+  //   if (writer) this.#outStream = writer;
+  // }
+
   Create(windowSize: CDist) {
     this.#windowSize = windowSize;
-    this.#buffer = Array.mock(windowSize);
+    this.#buffer = Array.sparse(windowSize);
   }
 
   Init() {

@@ -18,7 +18,11 @@ export type Mode = {
  */
 export type CompressionMode = keyof typeof MODES;
 
-/** Compression modes */
+/**
+ * Compression modes
+ *
+ * Ref. https://github.com/xseman/lzma1/blob/master/src/lzma.ts
+ */
 export const MODES = {
   1: { searchDepth: 16, filterStrength: 0x40, matchFinderType: false },
   2: { searchDepth: 20, filterStrength: 0x40, matchFinderType: false },
@@ -86,6 +90,11 @@ export const kNumStates = 12;
 export type kNumStates = 12;
 const kNumStates2 = 16;
 
+export const kStartPosModelIndex = 4;
+export const kEndPosModelIndex = 14;
+/** 128 */
+const kNumFullDistances = 1 << (kEndPosModelIndex >> 1);
+
 export const kNumPosSlotBits = 6;
 export const kNumLenToPosStates = 4;
 export type kNumLenToPosStates = 4;
@@ -93,9 +102,7 @@ export type kNumLenToPosStates = 4;
 export const kNumAlignBits = 4;
 /** 16 */
 export const kAlignTableSize = 1 << kNumAlignBits;
-export const kEndPosModelIndex = 14;
-/** 128 */
-const kNumFullDistances = 1 << (kEndPosModelIndex >> 1);
+
 export const kMatchMinLen = 2;
 /** 273, `LZMA_MATCH_LEN_MAX` */
 export const kMatchMaxLen: CLen = kMatchMinLen + 256 + 16 - 1;
@@ -129,8 +136,11 @@ export type CHOICE_ARRAY_SIZE = 2;
 /*49-------------------------------------------*/
 /* Additional LZMA constants */
 
+/** `2**28 - 1` */
 export const INFINITY_PRICE: CProbPrice = 0xFFF_FFFF;
+/** `2**48 - 1 */
 export const MAX_UINT48 = 0xFFFF_FFFF_FFFF;
+/** `2**30 - 1` */
 export const DICTSIZE_THRESHOLD: CDist = 0x3FFF_FFFF;
 /*80--------------------------------------------------------------------------*/
 /* Ref. 7zip/C/LzmaDec.c */

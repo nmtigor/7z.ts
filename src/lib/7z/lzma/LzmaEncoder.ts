@@ -154,7 +154,7 @@ export class LzmaEncoder {
   /* ~ */
 
   /* Distance and repetition arrays */
-  readonly #repDistances = Array.mock<CDist>(4).fill(0);
+  readonly #repDistances = Array.sparse<CDist>(4).fill(0);
   readonly #optimum: Optimum_[] = [];
   /* ~ */
 
@@ -164,12 +164,12 @@ export class LzmaEncoder {
   }
 
   /* Bit model arrays for different types of encoding decisions */
-  readonly #isMatch = Array.mock<CProb>(MATCH_DECODERS_SIZE);
-  readonly #isRep = Array.mock<CProb>(kNumStates);
-  readonly #isRepG0 = Array.mock<CProb>(kNumStates);
-  readonly #isRepG1 = Array.mock<CProb>(kNumStates);
-  readonly #isRepG2 = Array.mock<CProb>(kNumStates);
-  readonly #isRep0Long = Array.mock<CProb>(MATCH_DECODERS_SIZE);
+  readonly #isMatch = Array.sparse<CProb>(MATCH_DECODERS_SIZE);
+  readonly #isRep = Array.sparse<CProb>(kNumStates);
+  readonly #isRepG0 = Array.sparse<CProb>(kNumStates);
+  readonly #isRepG1 = Array.sparse<CProb>(kNumStates);
+  readonly #isRepG2 = Array.sparse<CProb>(kNumStates);
+  readonly #isRep0Long = Array.sparse<CProb>(MATCH_DECODERS_SIZE);
   /* ~ */
 
   /* Position and alignment encoders */
@@ -178,7 +178,7 @@ export class LzmaEncoder {
     () => new BitTree(kNumPosSlotBits),
   );
   readonly #posAlignEncoder = new BitTree(kNumAlignBits);
-  readonly #posEncoders = Array.mock<CProb>(POS_CODERS_SIZE);
+  readonly #posEncoders = Array.sparse<CProb>(POS_CODERS_SIZE);
 
   InitDist() {
     for (let i = 0; i < kNumLenToPosStates; ++i) {
@@ -198,14 +198,14 @@ export class LzmaEncoder {
   readonly #posSlotPrices: CProbPrice[] = [];
   /** `length < 512` */
   readonly #distancesPrices: CProbPrice[] = [];
-  readonly #alignPrices = Array.mock<CProbPrice>(kAlignTableSize);
+  readonly #alignPrices = Array.sparse<CProbPrice>(kAlignTableSize);
   #matchPriceCount: uint8 = 0;
   #alignPriceCount: uint8 = 0;
   /* ~ */
 
   /* Optimization arrays */
-  readonly #reps = Array.mock<CDist>(4);
-  readonly #repLens = Array.mock<CLen>(4);
+  readonly #reps = Array.sparse<CDist>(4);
+  readonly #repLens = Array.sparse<CLen>(4);
   /* ~ */
 
   /* Processing counters */
@@ -215,8 +215,8 @@ export class LzmaEncoder {
   }
 
   finished = false;
-  readonly properties = Array.mock<uint8>(5);
-  readonly #tempPrices = Array.mock<CProbPrice>(128);
+  readonly properties = Array.sparse<uint8>(5);
+  readonly #tempPrices = Array.sparse<CProbPrice>(128);
   /* ~ */
 
   /* Match finding properties */
@@ -232,6 +232,9 @@ export class LzmaEncoder {
     for (let i = kNumOpts; i--;) {
       this.#optimum[i] = new Optimum_();
     }
+
+    //jjjj TOCLEANUP
+    // this.#RangeEnc.Init();
 
     this.#litenc.Init();
     this.InitDist();
@@ -476,6 +479,11 @@ export class LzmaEncoder {
       this.#backRes = -1;
       return 1;
     }
+
+    //jjjj TOCLEANUP
+    // if (numAvailBytes > kMatchMaxLen) {
+    //   numAvailBytes = kMatchMaxLen;
+    // }
 
     const repMaxIndex = this.#updateReps();
     if (this.#repLens[repMaxIndex] >= this.#numFastBytes) {

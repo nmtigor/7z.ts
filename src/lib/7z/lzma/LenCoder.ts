@@ -21,7 +21,7 @@ abstract class LenCoder {
   protected numPosStates$: CState = 0;
 
   /** Choice probability arrays for length range selection */
-  protected readonly choice$ = Array.mock<CProb>(CHOICE_ARRAY_SIZE);
+  protected readonly choice$ = Array.sparse<CProb>(CHOICE_ARRAY_SIZE);
   /**
    * Low range coders (for lengths 2-9)\
    * Initialized in {@linkcode Create()}
@@ -47,8 +47,8 @@ abstract class LenCoder {
   Create(numPosStates_x: uint8) {
     this.numPosStates$ = numPosStates_x;
 
-    this.lowCoder$ = Array.mock(numPosStates_x);
-    this.midCoder$ = Array.mock(numPosStates_x);
+    this.lowCoder$ = Array.sparse(numPosStates_x);
+    this.midCoder$ = Array.sparse(numPosStates_x);
     for (let posState = numPosStates_x; posState--;) {
       this.lowCoder$[posState] = new BitTree(3);
       this.midCoder$[posState] = new BitTree(3);
@@ -75,18 +75,18 @@ export class LenDecoder extends LenCoder {
    * @headconst @param ls_x
    * @throw {@linkcode NoInput}
    */
-  decodeSync(posState_x: CState, rd_x: RangeDecoder, ls_x?: LenState): CLen {
+  decode(posState_x: CState, rd_x: RangeDecoder, ls_x?: LenState): CLen {
     let len: CLen;
-    if (rd_x.decodeBitSync(this.choice$, 0, ls_x?.choice) === 0) {
+    if (rd_x.decodeBit(this.choice$, 0, ls_x?.choice) === 0) {
       if (ls_x) ls_x.lowCoder.d1 = posState_x;
-      len = rd_x.decodeBitTreeSync(this.lowCoder$[posState_x], ls_x?.lowCoder);
+      len = rd_x.decodeBitTree(this.lowCoder$[posState_x], ls_x?.lowCoder);
     } else {
-      if (rd_x.decodeBitSync(this.choice$, 1, ls_x?.choice) === 0) {
+      if (rd_x.decodeBit(this.choice$, 1, ls_x?.choice) === 0) {
         if (ls_x) ls_x.midCoder.d1 = posState_x;
         len = 8 +
-          rd_x.decodeBitTreeSync(this.midCoder$[posState_x], ls_x?.midCoder);
+          rd_x.decodeBitTree(this.midCoder$[posState_x], ls_x?.midCoder);
       } else {
-        len = 16 + rd_x.decodeBitTreeSync(this.highCoder$, ls_x?.highCoder);
+        len = 16 + rd_x.decodeBitTree(this.highCoder$, ls_x?.highCoder);
       }
     }
     return len;
@@ -96,12 +96,12 @@ export class LenDecoder extends LenCoder {
    * @const @param posState_x
    * @borrow @headconst @param rd_x
    */
-  async decode(posState_x: CState, rd_x: RangeDecoder): Promise<CLen> {
-    const len: CLen = await rd_x.decodeBit(this.choice$, 0) === 0
-      ? await rd_x.decodeBitTree(this.lowCoder$[posState_x])
-      : await rd_x.decodeBit(this.choice$, 1) === 0
-      ? 8 + await rd_x.decodeBitTree(this.midCoder$[posState_x])
-      : 16 + await rd_x.decodeBitTree(this.highCoder$);
+  async decodeAsync(posState_x: CState, rd_x: RangeDecoder): Promise<CLen> {
+    const len: CLen = await rd_x.decodeBitAsync(this.choice$, 0) === 0
+      ? await rd_x.decodeBitTreeAsync(this.lowCoder$[posState_x])
+      : await rd_x.decodeBitAsync(this.choice$, 1) === 0
+      ? 8 + await rd_x.decodeBitTreeAsync(this.midCoder$[posState_x])
+      : 16 + await rd_x.decodeBitTreeAsync(this.highCoder$);
     return len;
   }
 }

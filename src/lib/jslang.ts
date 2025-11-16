@@ -4,6 +4,7 @@
  ******************************************************************************/
 
 import { INOUT } from "../preNs.ts";
+import type { ts_t } from "./alias.ts";
 import type {
   AbstractConstructor,
   Constructor,
@@ -11,7 +12,6 @@ import type {
   Func,
   int,
   IntegerArray,
-  ts_t,
   uint,
   uint32,
   uint8,
@@ -198,7 +198,7 @@ declare global {
      * @const @param len_x
      * @const @param val_x
      */
-    mock<T extends {} | null>(len_x: uint32, val_x?: T): T[];
+    sparse<T extends {} | null>(len_x: uint32, val_x?: T): T[];
   }
 }
 
@@ -248,7 +248,7 @@ Reflect.defineProperty(Array.prototype, "swap", {
   },
 });
 
-Array.mock = <T>(len_x: uint32, val_x?: T) => {
+Array.sparse = <T>(len_x: uint32, val_x?: T) => {
   const a_: T[] = [];
   // a_[len_x - 1] = undefined as any;
   a_.length = len_x;
@@ -546,7 +546,7 @@ Uint8Array.fromArys = (_x) => {
 //     return ret;
 //   } else {
 //     //jjjj TOCLEANUP
-//     // const buf = Array.mock<uint8>(data_x.length);
+//     // const buf = Array.sparse<uint8>(data_x.length);
 //     // let l_ = 0;
 //     // for await (const chunk of les.readable) buf[l_++] = chunk;
 //     // buf.length = l_;

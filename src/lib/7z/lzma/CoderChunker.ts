@@ -48,7 +48,7 @@ export class EncoderChunker extends CoderChunker {
    * Process one chunk of encoding
    * @throw {@linkcode BadState}
    */
-  async processChunk(): Promise<boolean> {
+  async processChunkAsync(): Promise<boolean> {
     if (!this.alive$) throw new BadState();
 
     await this.#encoder.codeOneBlock();
@@ -92,16 +92,16 @@ export class DecoderChunker extends CoderChunker {
    * @throw {@linkcode ExceedSize}
    */
   // @traceOut(_TRACE)
-  processChunkSync(): boolean {
+  processChunk(): boolean {
     // /*#static*/ if (_TRACE) {
     //   console.log(
-    //     `${trace.indent}>>>>>>> DecoderChunker.processChunkSync() >>>>>>>`,
+    //     `${trace.indent}>>>>>>> DecoderChunker.processChunk() >>>>>>>`,
     //   );
     // }
     if (!this.alive$) throw new BadState();
 
     this.#chunkstate.reset_ChunkState();
-    const result = this.#decoder.codeOneChunkSync(this.#chunkstate);
+    const result = this.#decoder.codeOneChunk(this.#chunkstate);
     if (result === DecodeChunkR.err) throw new CorruptedInput();
 
     this.inBytesProcessed$ = this.#decoder.nowPos48;
@@ -109,9 +109,11 @@ export class DecoderChunker extends CoderChunker {
     const isOutputComplete = this.outSize >= 0 &&
       this.#decoder.nowPos48 >= this.outSize;
 
+    // console.log(
+    //   `nowPos48: ${this.#decoder.nowPos48}, result: ${DecodeChunkR[result]}`,
+    // );
     if (result === DecodeChunkR.end || isOutputComplete) {
-      this.#decoder.OutWindow.flush();
-      this.#decoder.cleanup();
+      this.cleanup();
       this.alive$ = false;
     }
 
@@ -125,15 +127,15 @@ export class DecoderChunker extends CoderChunker {
    * @throw {@linkcode CorruptedInput}
    */
   // @traceOut(_TRACE)
-  async processChunk(): Promise<boolean> {
+  async processChunkAsync(): Promise<boolean> {
     // /*#static*/ if (_TRACE) {
     //   console.log(
-    //     `${trace.indent}>>>>>>> DecoderChunker.processChunk() >>>>>>>`,
+    //     `${trace.indent}>>>>>>> DecoderChunker.processChunkAsync() >>>>>>>`,
     //   );
     // }
     if (!this.alive$) throw new BadState();
 
-    const result = await this.#decoder.codeOneChunk();
+    const result = await this.#decoder.codeOneChunkAsync();
     if (result === DecodeChunkR.err) throw new CorruptedInput();
 
     this.inBytesProcessed$ = this.#decoder.nowPos48;
@@ -142,13 +144,16 @@ export class DecoderChunker extends CoderChunker {
       this.#decoder.nowPos48 >= this.outSize;
 
     if (result === DecodeChunkR.end || isOutputComplete) {
-      this.#decoder.OutWindow.flush();
-      this.#decoder.cleanup();
+      this.cleanup();
       this.alive$ = false;
     }
 
     /*#static*/ if (DEBUG) this._nAsync_++;
     return this.alive$;
+  }
+
+  cleanup() {
+    this.#decoder.cleanup();
   }
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 

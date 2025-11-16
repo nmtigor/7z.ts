@@ -5,7 +5,7 @@
  * @license MIT
  ******************************************************************************/
 
-import * as v from "@valibot/valibot";
+export {};
 /*80--------------------------------------------------------------------------*/
 /* jslang */
 
@@ -74,13 +74,15 @@ export type RemoveIndex<T> = {
 };
 //#endregion
 
-//#region Brand<>
-/* Ref. [5 Things They’ll NEVER Add To TypeScript](https://youtu.be/Zsj1UlCsuio?t=267) */
+/* alias_v */
+// //#region Brand<>
+// /* Ref. [5 Things They’ll NEVER Add To TypeScript](https://youtu.be/Zsj1UlCsuio?t=267) */
 
-//jjjj TOCLEANUP
-// export type Brand<T, TBrand> = T & { [$brand]: TBrand };
-export type Brand<T, TBrand extends v.BrandName> = T & v.Brand<TBrand>;
-//#endregion
+// //jjjj TOCLEANUP
+// // export type Brand<T, TBrand> = T & { [$brand]: TBrand };
+// export type Brand<T, TBrand extends v.BrandName> = T & v.Brand<TBrand>;
+// //#endregion
+/* ~ */
 
 //#region Writable<>
 /* Ref. [TypeScript - Removing readonly modifier](https://stackoverflow.com/a/43001581) */
@@ -92,95 +94,131 @@ export type DeepWritable<T> = {
 //#endregion
 /*64----------------------------------------------------------*/
 
+/* alias_v */
 //jjjj TOCLEANUP
 // /* Not `declare const $brand: unique symbol` because it's used in `v.object()`. */
 // export const $brand = Symbol("$brand");
 // export const $brand_int64 = Symbol("$brand_int64");
 // export const $brand_int32 = Symbol("$brand_int32");
 // export const $brand_id = Symbol("$brand_id");
+/* ~ */
 
 // export type int = Brand<number, "int">;
 // declare const $brand_int: unique symbol;
 // export type Brand_int<TBrand> = int & { [$brand_int]: TBrand };
 /** `Number.isInteger()` */
 export type int = number;
-export const vint = v.pipe(v.number(), v.integer());
-// export type int = v.InferInput<typeof vint>;
+/* alias_v */
+// export const vint = v.pipe(v.number(), v.integer());
+// // export type int = v.InferInput<typeof vint>;
+/* ~ */
 export type uint = number;
-// export type uint = Brand_int{"uint">;
-export const vuint = v.pipe(vint, v.minValue(0));
+/* alias_v */
+// // export type uint = Brand_int{"uint">;
+// export const vuint = v.pipe(vint, v.minValue(0));
+/* ~ */
 // export const Int = BigInt;
 // export const UInt = BigInt;
 
 export type int64 = int;
-export type Int64 = Brand<int64, "Int64">;
-const vInt64 = v.pipe(vint, v.brand("Int64"));
-//jjjj TOCLEANUP
-// export type Brand_Int64<TBrand> = Int64 & { [$brand_int64]: TBrand };
-export type Brand_Int64<TBrand extends v.BrandName> = Int64 & v.Brand<TBrand>;
+/* alias_v */
+// export type Int64 = Brand<int64, "Int64">;
+// const vInt64 = v.pipe(vint, v.brand("Int64"));
+// //jjjj TOCLEANUP
+// // export type Brand_Int64<TBrand> = Int64 & { [$brand_int64]: TBrand };
+// export type Brand_Int64<TBrand extends v.BrandName> = Int64 & v.Brand<TBrand>;
+/* ~ */
 export type int32 = int;
-export type Int32 = Brand<int32, "Int32">;
-//jjjj TOCLEANUP
-// export type Brand_Int32<TBrand> = Int32 & { [$brand_int32]: TBrand };
-export type Brand_Int32<TBrand extends v.BrandName> = Int32 & v.Brand<TBrand>;
+/* alias_v */
+// export type Int32 = Brand<int32, "Int32">;
+// //jjjj TOCLEANUP
+// // export type Brand_Int32<TBrand> = Int32 & { [$brand_int32]: TBrand };
+// export type Brand_Int32<TBrand extends v.BrandName> = Int32 & v.Brand<TBrand>;
+/* ~ */
 export type int16 = int;
-export type Int16 = Brand<int16, "Int16">;
+/* alias_v */
+// export type Int16 = Brand<int16, "Int16">;
+/* ~ */
 export type int8 = int;
-export type Int8 = Brand<int8, "Int8">;
+/* alias_v */
+// export type Int8 = Brand<int8, "Int8">;
+/* ~ */
 export type uint64 = uint;
 export type uint32 = uint;
-export type UInt32 = Brand<uint32, "UInt32">;
+/* alias_v */
+// export type UInt32 = Brand<uint32, "UInt32">;
+/* ~ */
 export type uint16 = uint;
-export type UInt16 = Brand<uint16, "UInt16">;
-export const vUInt16 = v.pipe(
-  vuint,
-  v.maxValue(2 ** 16 - 1),
-  v.brand("UInt16"),
-);
+/* alias_v */
+// export type UInt16 = Brand<uint16, "UInt16">;
+// export const vUInt16 = v.pipe(
+//   vuint,
+//   v.maxValue(2 ** 16 - 1),
+//   v.brand("UInt16"),
+// );
+/* ~ */
 export type uint8 = uint;
-export const vuint8 = v.pipe(vuint, v.maxValue(2 ** 8 - 1));
-export type UInt8 = Brand<uint8, "UInt8">;
+/* alias_v */
+// export const vuint8 = v.pipe(vuint, v.maxValue(2 ** 8 - 1));
+// export type UInt8 = Brand<uint8, "UInt8">;
+/* ~ */
 
 export type unum = number;
-export const vunum = v.pipe(v.number(), v.minValue(0));
+/* alias_v */
+// export const vunum = v.pipe(v.number(), v.minValue(0));
+/* ~ */
 /*49-------------------------------------------*/
 
-/** 0 is special */
-/* "Invalid type: Expected Object but received 16" */
-// const $brand_ = Symbol("$brand_");
-// export type id_t = uint & { [$brand_]: "id_t" };
-// export const vid_t = v.intersect([
-//   vuint,
-//   v.object({ [$brand_]: v.literal("id_t") }),
-// ]);
-// console.log(v.safeParse(vid_t, 16));
+export type id_t = uint;
+/* alias_v */
+// export const vid_t = v.pipe(vuint);
+// /** 0 is special */
+// /* "Invalid type: Expected Object but received 16" */
+// // const $brand_ = Symbol("$brand_");
+// // export type Id_t = uint & { [$brand_]: "Id_t" };
+// // export const vId_t = v.intersect([
+// //   vuint,
+// //   v.object({ [$brand_]: v.literal("Id_t") }),
+// // ]);
+// // console.log(v.safeParse(vId_t, 16));
+// /* ~ */
+// export type Id_t = Brand<uint, "Id_t">;
+// export const vId_t = v.pipe(vuint, v.brand("Id_t"));
+// //jjjj TOCLEANUP
+// // export type Brand_id<TBrand> = Id_t & { [$brand_id]: TBrand };
+// export type Brand_id<TBrand extends v.BrandName> = Id_t & v.Brand<TBrand>;
 /* ~ */
-export type id_t = Brand<uint, "id_t">;
-export const vid_t = v.pipe(vuint, v.brand("id_t"));
-//jjjj TOCLEANUP
-// export type Brand_id<TBrand> = id_t & { [$brand_id]: TBrand };
-export type Brand_id<TBrand extends v.BrandName> = id_t & v.Brand<TBrand>;
 
 /** Count one "\t" as 1 */
 export type loff_t = uint32;
-export type ldt_t = Brand_Int32<"ldt_t">;
+/* alias_v */
+// export type ldt_t = Brand_Int32<"ldt_t">;
+/* ~ */
 export const loff_UNDEFINED: loff_t = -1_000_000_001;
 export const loff_MAX: loff_t = 1_000_000_000;
 /** Count one "\t" as e.g. 2, 4, 8 */
 export type lcol_t = loff_t;
 
-export type lnum_t = Brand<uint32, "lnum_t">;
-// export const lnum_UNDEFINED:lnum_t = -256n;
-export const lnum_MAX = 1_000_000 as lnum_t;
+/* alias_v */
+// export type lnum_t = Brand<uint32, "lnum_t">;
+// // export const lnum_UNDEFINED:lnum_t = -256n;
+// export const lnum_MAX = 1_000_000 as lnum_t;
+/* ~ */
 
 /** Type of unix timestamp */
-export type ts_t = Brand_Int64<"ts_t">;
-export const vts_t = v.pipe(vInt64, v.brand("ts_t"));
+export type ts_t = int64;
+/* alias_v */
+// export const vts_t = v.pipe(vint);
+// /** Type of unix timestamp */
+// export type Ts_t = Brand_Int64<"Ts_t">;
+// export const vTs_t = v.pipe(vInt64, v.brand("Ts_t"));
+/* ~ */
 
 /** Recommand [0,1] */
 export type Ratio = number;
-// export type Ratio = Brand<number, "Ratio">; //jjjj try to use this
-export const vRatio = v.pipe(v.number(), v.finite());
+/* alias_v */
+// export const vRatio = v.pipe(v.number(), v.finite());
+/* ~ */
 /*64----------------------------------------------------------*/
 
 // export type DecDigitChar = "0"
@@ -200,8 +238,10 @@ export type Dulstr = string;
 export type UChr = string;
 // export type UChr = Brand<string, "UChr">; //jjjj try to use this
 
-/** Type of each element of `[..."(😄)"]` */
-export type Chr = Brand<string, "Chr">;
+/* alias_v */
+// /** Type of each element of `[..."(😄)"]` */
+// export type Chr = Brand<string, "Chr">;
+/* ~ */
 
 // deno-fmt-ignore
 /**
@@ -307,7 +347,9 @@ export const OC2D = globalThis.OffscreenCanvasRenderingContext2D;
 //   rtl,
 // }
 export type BufrDir = "ltr" | "rtl";
-export const vBufrDir = v.picklist(["ltr", "rtl"]);
+/* alias_v */
+// export const vBufrDir = v.picklist(["ltr", "rtl"]);
+/* ~ */
 
 export enum WritingMode {
   htb = 0b0_0001,
@@ -315,9 +357,11 @@ export enum WritingMode {
   vrl = 0b0_0100,
   vlr = 0b0_1000,
 }
-// export const vWritingMode = v.enum(WritingMode);
+/* alias_v */
+// // export const vWritingMode = v.enum(WritingMode);
+// export const vWritingMode = v.picklist(["htb", "vrl", "vlr"]);
+/* ~ */
 // console.log(Object.keys(WritingMode).filter((_x) => isNaN(Number(_x))));
-export const vWritingMode = v.picklist(["htb", "vrl", "vlr"]);
 export const enum WritingDir {
   h = WritingMode.htb,
   v = WritingMode.vrl | WritingMode.vlr,
@@ -339,13 +383,15 @@ export enum ToolbarSide {
   rigt_top = 0b0_0100_0000,
   // rigt_bot = 0b0_1000_0000,
 }
-// export const vToolbarSide = v.enum(ToolbarSide);
-export const vToolbarSide = v.picklist(/* deno-fmt-ignore */ [
-  "top_left", "top_rigt",
-  "bot_left", "bot_rigt",
-  "left_top",
-  "rigt_top",
-]);
+/* alias_v */
+// // export const vToolbarSide = v.enum(ToolbarSide);
+// export const vToolbarSide = v.picklist(/* deno-fmt-ignore */ [
+//   "top_left", "top_rigt",
+//   "bot_left", "bot_rigt",
+//   "left_top",
+//   "rigt_top",
+// ]);
+/* ~ */
 export const enum ToolbarInfo {
   top = ToolbarSide.top_left | ToolbarSide.top_rigt,
   bot = ToolbarSide.bot_left | ToolbarSide.bot_rigt,
