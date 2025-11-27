@@ -58,8 +58,7 @@ describe("basics", () => {
     const lds = Lzma.decompressRs(res.body!);
     const dec = await Uint8Array.fromRsU8ary(lds.readable);
 
-    const err = await lds.error.promise;
-    if (err) throw err;
+    await lds.safeguard.promise;
 
     const raw = Deno.readTextFileSync(`${D_}/${F_}`);
     assertEquals(decodeABV(dec), raw);
@@ -336,8 +335,7 @@ describe("(De)compress large files", () => {
       const lds = Lzma.decompressRs(res.body!);
       const dec = await Uint8Array.fromRsU8ary(lds.readable);
 
-      const err = await lds.error.promise;
-      if (err) throw err;
+      await lds.safeguard.promise;
 
       const raw = Deno.readFileSync(`${D_}/${F_x}`);
       assertEquals(dec, raw);

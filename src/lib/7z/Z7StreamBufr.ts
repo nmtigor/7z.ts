@@ -3,15 +3,16 @@
  * @license MIT
  ******************************************************************************/
 
-import { INOUT } from "../../preNs.ts";
+import { _TRACE, INOUT } from "../../preNs.ts";
 import type { uint, uint16, uint32, uint8 } from "../alias.ts";
 import "../jslang.ts";
 import { assert } from "../util.ts";
 import { k_LZMA, NID } from "./alias.ts";
-import type { CDbEx, CFileItem, CFolders } from "./CDbEx.ts";
+import type { CDatabase, CDbEx, CFileItem, CFolders } from "./CDbEx.ts";
 import { CCoderInfo, Folder } from "./CDbEx.ts";
 import { StreamBufr } from "./StreamBufr.ts";
 import { ExceedSize, IncorrectFormat, UnsupportedFeature } from "./util.ts";
+import { trace, traceOut } from "../util/trace.ts";
 /*80--------------------------------------------------------------------------*/
 
 class Ctx_ {
@@ -35,6 +36,12 @@ class Ctx_ {
     this.#pa = pa_x ?? null;
     this.rofs = rofs_x;
   }
+  /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
+
+  /** For testing only */
+  toString() {
+    return this.#pa ? `+${this.rofs}` : `${this.rofs}`;
+  }
 }
 
 /**
@@ -45,17 +52,38 @@ export class Z7StreamBufr extends StreamBufr {
   /* #ctxs */
   /** contexts */
   #ctxs: Ctx_[] = [new Ctx_(0)];
-  get _ctxs_() {
-    return this.#ctxs;
+
+  get ctxsLen() {
+    return this.#ctxs.length;
   }
 
+  get aofs_0() {
+    return this.#ctxs.at(-1)!.aofs;
+  }
+
+  @traceOut(_TRACE)
   ctxIn() {
+    /*#static*/ if (_TRACE) {
+      console.log(`${trace.indent}>>>>>>> ${this._type_id_}.ctxIn() >>>>>>>`);
+    }
     const ctx = new Ctx_(this.#cofs, this.#ctxs.at(-1));
     this.#ctxs.push(ctx);
     this.#cofs = 0;
+    /*#static*/ if (_TRACE) {
+      console.log(
+        `${trace.dent}#ctxs: ${this.#ctxs} (${this.#ctxs.at(-1)?.aofs})`,
+      );
+    }
   }
   /** `in( this.#ctx.length >= 2)` */
+  @traceOut(_TRACE)
   ctxOut() {
+    /*#static*/ if (_TRACE) {
+      console.log(`${trace.indent}>>>>>>> ${this._type_id_}.ctxOut() >>>>>>>`);
+      console.log(
+        `${trace.dent}#ctxs: ${this.#ctxs} (${this.#ctxs.at(-1)?.aofs})`,
+      );
+    }
     const ctx = this.#ctxs.pop()!;
     this.#cofs += ctx.rofs;
   }
@@ -68,49 +96,27 @@ export class Z7StreamBufr extends StreamBufr {
     return this.#cofs;
   }
 
-  /** @const @param aofs_x absolute */
-  #setCnd(aofs_x: uint) {
-    let cnd = this.cnd;
-    if (aofs_x < cnd.payload.strt) {
-      try {
-        for (cnd = cnd.prev!; aofs_x < cnd.payload.strt; cnd = cnd.prev!);
-      } catch (_) {
-        throw new ExceedSize(`${aofs_x} < ${cnd.payload.strt}`);
-      }
-      this.cnd$ = cnd;
-    } else if (cnd.payload.stop < aofs_x) {
-      try {
-        for (cnd = cnd.next!; cnd.payload.stop < aofs_x; cnd = cnd.next!);
-      } catch (_) {
-        throw new ExceedSize(`${aofs_x} > ${cnd.payload.stop}`);
-      }
-      this.cnd$ = cnd;
-    }
-  }
-  /**
-   * @const @param _x in context
-   * @throw {@linkcode ExceedSize}
-   */
+  /** @const @param _x in context */
   set cofs(_x: uint) {
     if (_x === this.#cofs) return;
 
-    this.#setCnd(this.#ctxs.at(-1)!.aofs + _x);
+    this.setCnd$(this.aofs_0 + _x);
     this.#cofs = _x;
   }
 
   /** current absolute offset */
   get caofs(): uint {
-    return this.#ctxs.at(-1)!.aofs + this.#cofs;
+    return this.aofs_0 + this.#cofs;
   }
   /* ~ */
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
-  override prepare(len_x: uint, strt_x = this.caofs): uint {
-    return super.prepare(len_x, strt_x);
+  override prepare(size_x: uint, strt_x = this.caofs): uint {
+    return super.prepare(size_x, strt_x);
   }
 
-  override peek(len_x: uint, strt_x = this.caofs): Uint8Array[] {
-    return super.peek(len_x, strt_x);
+  override peek(size_x: uint, strt_x = this.caofs): Uint8Array[] {
+    return super.peek(size_x, strt_x);
   }
   /*49|||||||||||||||||||||||||||||||||||||||||||*/
 
@@ -119,16 +125,13 @@ export class Z7StreamBufr extends StreamBufr {
     const aofs = this.caofs;
     this.#cofs += 1;
 
-    const cpl = this.cnd.payload;
-    if (aofs < cpl.stop) return cpl.chunk[aofs - cpl.strt];
-
-    /*#static*/ if (INOUT) {
-      assert(aofs === cpl.stop);
+    let cnd = this.cnd;
+    if (aofs === cnd.payload.stop) {
+      if (!cnd.next) throw new ExceedSize(`aofs: ${aofs}`);
+      cnd = cnd.next;
     }
-    if (!this.cnd$!.next) throw new ExceedSize(`${aofs + 1} > ${aofs}`);
 
-    this.cnd$ = this.cnd$!.next;
-    return this.cnd$.payload.chunk[0];
+    return cnd.payload.readByte(aofs);
   }
 
   #readUint16(): uint16 {
@@ -201,31 +204,31 @@ export class Z7StreamBufr extends StreamBufr {
 
   /**
    * Ref. `ReadBoolVector2()` in "[ip7z/7zip]/.../7zIn.cpp"
-   * @out @param _x
+   * @out @param bs_x
    * @throw {@linkcode ExceedSize}
    */
-  #readBools(_x: boolean[]): void {
-    let b_: uint8 = 0;
+  #readBools(bs_x: boolean[]): void {
+    let v_: uint8 = 0;
     let mask: uint8 = 0;
-    for (let i = 0, iI = _x.length; i < iI; i++) {
+    for (let i = 0, iI = bs_x.length; i < iI; i++) {
       if (mask === 0) {
-        b_ = this.readByte();
+        v_ = this.readByte();
         mask = 0x80;
       }
-      _x[i] = (b_ & mask) !== 0;
+      bs_x[i] = (v_ & mask) !== 0;
       mask >>= 1;
     }
   }
 
   /**
    * Ref. `ReadBoolVector2()` in "[ip7z/7zip]/.../7zIn.cpp"
-   * @out @param _x
+   * @out @param bs_x
    * @throw {@linkcode ExceedSize}
    */
-  #readBoolsAll(_x: boolean[]): void {
-    const allDefined = !!this.readByte();
-    if (allDefined) _x.fill(true);
-    else this.#readBools(_x);
+  #readBoolsAll(bs_x: boolean[]): void {
+    const allTrue = !!this.readByte();
+    if (allTrue) bs_x.fill(true);
+    else this.#readBools(bs_x);
   }
 
   /**
@@ -233,10 +236,10 @@ export class Z7StreamBufr extends StreamBufr {
    * @out @param _x
    */
   #readHashDigests(_x: (uint32 | undefined)[]): void {
-    const bs_ = Array.sparse<boolean>(_x.length);
-    this.#readBoolsAll(bs_);
+    const b_a = Array.sparse<boolean>(_x.length);
+    this.#readBoolsAll(b_a);
     for (let i = 0, iI = _x.length; i < iI; i++) {
-      _x[i] = bs_[i] ? this.readUint32() : undefined;
+      _x[i] = b_a[i] ? this.readUint32() : undefined;
     }
   }
 
@@ -246,12 +249,12 @@ export class Z7StreamBufr extends StreamBufr {
    * @throw {@linkcode UnsupportedFeature}
    */
   #readUint32s(_x: (uint32 | undefined)[]): void {
-    const bs_ = Array.sparse<boolean>(_x.length);
-    this.#readBoolsAll(bs_);
+    const b_a = Array.sparse<boolean>(_x.length);
+    this.#readBoolsAll(b_a);
     const external = this.readByte();
     if (external !== 0) throw new UnsupportedFeature(`external: ${external}`);
     for (let i = 0, iI = _x.length; i < iI; i++) {
-      _x[i] = bs_[i] ? this.readUint32() : undefined;
+      _x[i] = b_a[i] ? this.readUint32() : undefined;
     }
   }
 
@@ -261,12 +264,12 @@ export class Z7StreamBufr extends StreamBufr {
    * @throw {@linkcode UnsupportedFeature}
    */
   #readUint64s(_x: (bigint | undefined)[]): void {
-    const bs_ = Array.sparse<boolean>(_x.length);
-    this.#readBoolsAll(bs_);
+    const b_a = Array.sparse<boolean>(_x.length);
+    this.#readBoolsAll(b_a);
     const external = this.readByte();
     if (external !== 0) throw new UnsupportedFeature(`external: ${external}`);
     for (let i = 0, iI = _x.length; i < iI; i++) {
-      _x[i] = bs_[i] ? this.readUint64() : undefined;
+      _x[i] = b_a[i] ? this.readUint64() : undefined;
     }
   }
   /*49|||||||||||||||||||||||||||||||||||||||||||*/
@@ -326,7 +329,6 @@ export class Z7StreamBufr extends StreamBufr {
     }
     folders_x.NumFolders = numFolders;
     let numCodersOutStreams: uint16 = 0;
-    const ctxStrt = this.caofs;
     this.ctxIn();
     {
       const external = this.readByte();
@@ -340,13 +342,14 @@ export class Z7StreamBufr extends StreamBufr {
 
         //jjjj TOCLEANUP
         // folders_x.FoCodersDataOffset[fo] = this.#cofs - startBufPtr;
-        const numCoders = this.readUint() as uint8;
-        // if (numCoders === 0 || numCoders > k_Scan_NumCoders_MAX) {
-        if (numCoders !== 1) {
-          throw new UnsupportedFeature(`numCoders: ${numCoders}`);
+        const NumCoders = this.readUint() as uint8;
+        // if (NumCoders === 0 || NumCoders > k_Scan_NumCoders_MAX) {
+        if (NumCoders !== 1) {
+          throw new UnsupportedFeature(`NumCoders: ${NumCoders}`);
         }
-        for (let ci = 0; ci < numCoders; ci++) {
+        for (let ci = 0; ci < NumCoders; ci++) {
           const mainByte = this.readByte();
+          // console.log(`mainByte: 0x${mainByte.toString(16)}`);
           if ((mainByte & 0xC0) !== 0) {
             throw new UnsupportedFeature(
               `mainByte: 0x${mainByte.toString(16)}`,
@@ -389,7 +392,7 @@ export class Z7StreamBufr extends StreamBufr {
         }
         folders_x.FoToStartPsi[fo] = fo;
         folders_x.FoToCoderUnpackSizes[fo] = numCodersOutStreams;
-        numCodersOutStreams += numCoders;
+        numCodersOutStreams += NumCoders;
         folders_x.FoToMainUnpackSizeIndex[fo] = 0;
         folders_x.folder_a[fo] = folder;
       }
@@ -399,7 +402,6 @@ export class Z7StreamBufr extends StreamBufr {
       folders_x.FoToCoderUnpackSizes[fo] = numCodersOutStreams;
     }
     this.ctxOut();
-    this.disuse(ctxStrt, this.caofs);
 
     type = this.readUint();
     if (type !== NID.kCodersUnpackSize) throw new IncorrectFormat();
@@ -498,8 +500,8 @@ export class Z7StreamBufr extends StreamBufr {
       if (type === NID.kEnd) break;
 
       if (type === NID.kCRC) {
-        const bs_ = Array.sparse<boolean>(numDigests);
-        this.#readBoolsAll(bs_);
+        const b_a = Array.sparse<boolean>(numDigests);
+        this.#readBoolsAll(b_a);
         for (let fo = 0, k = 0, k2 = 0; fo < folders_x.NumFolders; fo++) {
           const numSubstreams = folders_x.NumUnpackStreams_a[fo];
           if (
@@ -508,7 +510,7 @@ export class Z7StreamBufr extends StreamBufr {
             digests_x[k++] = folders_x.FolderCRCs[fo]!;
           } else {
             for (let j = numSubstreams; j--;) {
-              digests_x[k++] = bs_[k2++] ? this.readUint32() : undefined;
+              digests_x[k++] = b_a[k2++] ? this.readUint32() : undefined;
             }
           }
         }
@@ -533,7 +535,6 @@ export class Z7StreamBufr extends StreamBufr {
 
   /**
    * Ref. `ReadStreamsInfo()` in "[ip7z/7zip]/.../7zIn.cpp"
-   * @const @param strt_x in context
    * @const @param stop_x in context
    * @out @param folders_x
    * @out @param unpackSizes_x
@@ -542,30 +543,35 @@ export class Z7StreamBufr extends StreamBufr {
    * @throw {@linkcode IncorrectFormat}
    * @throw {@linkcode UnsupportedFeature}
    */
+  @traceOut(_TRACE)
   readStreamsInfo(
-    strt_x: uint,
     stop_x: uint,
     folders_x: CFolders,
     unpackSizes_x: uint[],
     digests_x?: (uint32 | undefined)[],
-  ): uint {
-    let dataOffset: uint = 0;
+  ): void {
+    /*#static*/ if (_TRACE) {
+      console.log(
+        `${trace.indent}>>>>>>> ${this._type_id_}.readStreamsInfo( ${stop_x}) >>>>>>>`,
+      );
+    }
+    const strt = this.cofs;
     let type = this.readUint();
     if (type === NID.kPackInfo) {
-      dataOffset = this.readUint();
-      if (strt_x <= dataOffset && dataOffset < stop_x) {
+      folders_x.PackPos = this.readUint();
+      if (strt <= folders_x.PackPos && folders_x.PackPos < stop_x) {
         throw new IncorrectFormat();
       }
 
       this.#readPackInfo(folders_x);
 
-      const headerPackStop = dataOffset + folders_x.PackPositions.at(-1)!;
-      if (strt_x < headerPackStop && headerPackStop <= stop_x) {
-        throw new IncorrectFormat();
+      const packSize = folders_x.PackPositions.at(-1)!;
+      if (packSize > 0) {
+        const packStop = folders_x.PackPos + packSize;
+        if (strt < packStop && packStop <= stop_x) {
+          throw new IncorrectFormat();
+        }
       }
-      // console.log(
-      //   `headerPackStrt: ${dataOffset}, headerPackStop: ${headerPackStop}`,
-      // );
 
       type = this.readUint();
     }
@@ -591,8 +597,125 @@ export class Z7StreamBufr extends StreamBufr {
     }
 
     if (type !== NID.kEnd) throw new IncorrectFormat();
+  }
 
-    return dataOffset;
+  /**
+   * @out @param db_x
+   * @const @param unpackSizes_x
+   * @const @param digests_x
+   */
+  #readFilesInfo(
+    db_x: CDatabase,
+    unpackSizes_x: uint[],
+    digests_x: (uint32 | undefined)[],
+  ): void {
+    const numFiles = this.readUint();
+    const emptyStream_bs = Array.sparse<boolean>(numFiles);
+    const emptyFile_bs: boolean[] = [];
+    const antiFile_bs: boolean[] = [];
+    let numEmptyStreams: uint = 0;
+    for (;;) {
+      const type = this.readUint();
+      if (type === NID.kEnd) break;
+
+      const size = this.readUint();
+      // console.log("type: ", type, ", size: ", size);
+      const useStop = this.caofs + size;
+      this.ctxIn();
+      {
+        switch (type) {
+          case NID.kName:
+            {
+              const external = this.readByte();
+              if (external !== 0) {
+                throw new UnsupportedFeature(`external: ${external}`);
+              }
+              for (let fi = 0; fi < numFiles; fi++) {
+                const u16_a: uint16[] = [];
+                for (;;) {
+                  const u16 = this.#readUint16();
+                  if (u16 === 0) break;
+
+                  u16_a.push(u16);
+                }
+                if (u16_a.length === 0) throw new IncorrectFormat();
+                db_x.Names[fi] = String.fromCharCode(...u16_a);
+              }
+              // console.log("db_x.Names: ", db_x.Names);
+            }
+            break;
+          case NID.kWinAttrib:
+            db_x.Attrib = Array.sparse<uint32>(numFiles);
+            this.#readUint32s(db_x.Attrib);
+            break;
+          case NID.kEmptyStream:
+            this.#readBools(emptyStream_bs);
+            for (const b of emptyStream_bs) if (b) numEmptyStreams += 1;
+            emptyFile_bs.length = numEmptyStreams;
+            antiFile_bs.length = numEmptyStreams;
+            break;
+          case NID.kEmptyFile:
+            this.#readBools(emptyFile_bs);
+            break;
+          case NID.kAnti:
+            this.#readBools(antiFile_bs);
+            break;
+          case NID.kStartPos:
+            db_x.StartPos = Array.sparse<bigint>(numFiles);
+            this.#readUint64s(db_x.StartPos);
+            break;
+          case NID.kCTime:
+            db_x.CTime = Array.sparse<bigint>(numFiles);
+            this.#readUint64s(db_x.CTime);
+            break;
+          case NID.kATime:
+            db_x.ATime = Array.sparse<bigint>(numFiles);
+            this.#readUint64s(db_x.ATime);
+            break;
+          case NID.kMTime:
+            db_x.MTime = Array.sparse<bigint>(numFiles);
+            this.#readUint64s(db_x.MTime);
+            break;
+          case NID.kDummy:
+            for (let j = size; j--;) {
+              if (this.readByte() !== 0) throw new IncorrectFormat();
+            }
+            break;
+          default:
+            throw new UnsupportedFeature(`type: ${type}`);
+        }
+      }
+      this.ctxOut();
+      if (this.caofs !== useStop) throw new IncorrectFormat();
+    }
+
+    if (numFiles - numEmptyStreams !== unpackSizes_x.length) {
+      throw new UnsupportedFeature();
+    }
+
+    let numAntiItems: uint = 0;
+    for (const b of antiFile_bs) if (b) numAntiItems += 1;
+    if (numAntiItems > 0) db_x.IsAnti = Array.sparse<boolean>(numFiles);
+
+    for (let fi = 0, emptyFileIndex = 0, sizeIndex = 0; fi < numFiles; fi++) {
+      const file = db_x.Files[fi] = {} as CFileItem;
+      let isAnti: boolean;
+      if (emptyStream_bs[fi]) {
+        file.HasStream = false;
+        file.IsDir = !emptyFile_bs[emptyFileIndex];
+        isAnti = antiFile_bs[emptyFileIndex];
+        emptyFileIndex += 1;
+        file.Size = 0;
+      } else {
+        file.HasStream = true;
+        file.IsDir = false;
+        isAnti = false;
+        file.Size = unpackSizes_x[sizeIndex];
+        file.Crc = digests_x[sizeIndex];
+        sizeIndex += 1;
+      }
+      if (numAntiItems > 0) db_x.IsAnti![fi] = isAnti;
+    }
   }
 
   /**
@@ -603,144 +726,41 @@ export class Z7StreamBufr extends StreamBufr {
    * @throw {@linkcode IncorrectFormat}
    * @throw {@linkcode UnsupportedFeature}
    */
+  @traceOut(_TRACE)
   readHeader(stop_x: uint, db_x: CDbEx) {
-    let ty_0 = this.readUint();
-    if (ty_0 === NID.kArchiveProperties) {
+    /*#static*/ if (_TRACE) {
+      console.log(
+        `${trace.indent}>>>>>>> ${this._type_id_}.readHeader( ${stop_x}) >>>>>>>`,
+      );
+    }
+    let type = this.readUint();
+    if (type === NID.kArchiveProperties) {
       for (; this.readUint() !== NID.kEnd; this.readUint());
-      ty_0 = this.readUint();
+      type = this.readUint();
     }
 
-    if (ty_0 === NID.kAdditionalStreamsInfo) {
+    if (type === NID.kAdditionalStreamsInfo) {
       throw new UnsupportedFeature();
     }
 
     const unpackSizes: uint[] = [];
     const digests: (uint32 | undefined)[] = [];
-    if (ty_0 === NID.kMainStreamsInfo) {
-      this.readStreamsInfo(this.cofs, stop_x, db_x, unpackSizes, digests);
+    if (type === NID.kMainStreamsInfo) {
+      this.readStreamsInfo(stop_x, db_x, unpackSizes, digests);
       // console.log({ db_x });
       // console.log({ unpackSizes });
       // console.log({ digests });
-      ty_0 = this.readUint();
+      type = this.readUint();
     }
 
-    if (ty_0 === NID.kFilesInfo) {
-      const numFiles = this.readUint();
-      const emptyStream_bs = Array.sparse<boolean>(numFiles);
-      const emptyFile_bs: boolean[] = [];
-      const antiFile_bs: boolean[] = [];
-      let numEmptyStreams: uint = 0;
-      for (;;) {
-        const ty_1 = this.readUint();
-        if (ty_1 === NID.kEnd) break;
-
-        const size = this.readUint();
-        // console.log("ty_1: ", ty_1, ", size: ", size);
-        const ctxStrt = this.caofs;
-        const ctxStop = ctxStrt + size;
-        this.ctxIn();
-        {
-          switch (ty_1) {
-            case NID.kName:
-              {
-                const external = this.readByte();
-                if (external !== 0) {
-                  throw new UnsupportedFeature(`external: ${external}`);
-                }
-                for (let fi = 0; fi < numFiles; fi++) {
-                  const u16_a: uint16[] = [];
-                  for (;;) {
-                    const u16 = this.#readUint16();
-                    if (u16 === 0) break;
-
-                    u16_a.push(u16);
-                  }
-                  if (u16_a.length === 0) throw new IncorrectFormat();
-                  db_x.Names[fi] = String.fromCharCode(...u16_a);
-                }
-                // console.log("db_x.Names: ", db_x.Names);
-              }
-              break;
-            case NID.kWinAttrib:
-              db_x.Attrib = Array.sparse<uint32>(numFiles);
-              this.#readUint32s(db_x.Attrib);
-              break;
-            case NID.kEmptyStream:
-              this.#readBools(emptyStream_bs);
-              for (const b of emptyStream_bs) if (b) numEmptyStreams += 1;
-              emptyFile_bs.length = numEmptyStreams;
-              antiFile_bs.length = numEmptyStreams;
-              break;
-            case NID.kEmptyFile:
-              this.#readBools(emptyFile_bs!);
-              break;
-            case NID.kAnti:
-              this.#readBools(antiFile_bs!);
-              break;
-            case NID.kStartPos:
-              db_x.StartPos = Array.sparse<bigint>(numFiles);
-              this.#readUint64s(db_x.StartPos);
-              break;
-            case NID.kCTime:
-              db_x.CTime = Array.sparse<bigint>(numFiles);
-              this.#readUint64s(db_x.CTime);
-              break;
-            case NID.kATime:
-              db_x.ATime = Array.sparse<bigint>(numFiles);
-              this.#readUint64s(db_x.ATime);
-              break;
-            case NID.kMTime:
-              db_x.MTime = Array.sparse<bigint>(numFiles);
-              this.#readUint64s(db_x.MTime);
-              break;
-            case NID.kDummy:
-              for (let j = size; j--;) {
-                if (this.readByte() !== 0) throw new IncorrectFormat();
-              }
-              break;
-            default:
-              throw new UnsupportedFeature(`ty_1: ${ty_1}`);
-          }
-        }
-        this.ctxOut();
-        if (this.caofs !== ctxStop) throw new IncorrectFormat();
-        this.disuse(ctxStrt, ctxStop);
-      }
-
-      ty_0 = this.readUint();
-
-      if (numFiles - numEmptyStreams !== unpackSizes.length) {
-        throw new UnsupportedFeature();
-      }
-
-      let numAntiItems: uint = 0;
-      for (const b of antiFile_bs) if (b) numAntiItems += 1;
-      if (numAntiItems > 0) db_x.IsAnti = Array.sparse<boolean>(numAntiItems);
-
-      for (let fi = 0, emptyFileIndex = 0, sizeIndex = 0; fi < numFiles; fi++) {
-        const file = db_x.Files[fi] = {} as CFileItem;
-        let isAnti: boolean;
-        if (emptyStream_bs[fi]) {
-          file.HasStream = false;
-          file.IsDir = !emptyFile_bs[emptyFileIndex];
-          isAnti = antiFile_bs[emptyFileIndex];
-          emptyFileIndex += 1;
-          file.Size = 0;
-        } else {
-          file.HasStream = true;
-          file.IsDir = false;
-          isAnti = false;
-          file.Size = unpackSizes[sizeIndex];
-          file.Crc = digests[sizeIndex];
-          sizeIndex += 1;
-        }
-        if (numAntiItems > 0) db_x.IsAnti![fi] = isAnti;
-      }
+    if (type === NID.kFilesInfo) {
+      this.#readFilesInfo(db_x, unpackSizes, digests);
+      type = this.readUint();
     }
 
     db_x.FillLinks();
 
-    if (ty_0 !== NID.kEnd || this.cofs !== stop_x) throw new IncorrectFormat();
+    if (type !== NID.kEnd || this.cofs !== stop_x) throw new IncorrectFormat();
     // console.log(db_x);
   }
 }

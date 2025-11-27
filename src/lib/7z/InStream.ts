@@ -3,7 +3,7 @@
  * @license MIT
  ******************************************************************************/
 
-import type { uint, uint8 } from "../alias.ts";
+import type { id_t, uint, uint8 } from "../alias.ts";
 import "@fe-lib/jslang.ts";
 import { _TRACE, INOUT } from "../../preNs.ts";
 import { assert, bind } from "../util.ts";
@@ -17,9 +17,11 @@ import { trace, traceOut } from "../util/trace.ts";
  * ```
  */
 export abstract class InStream {
+  static #ID = 0 as id_t;
+  readonly id = ++InStream.#ID as id_t;
   /** @final */
-  get _type_() {
-    return this.constructor.name;
+  get _type_id_() {
+    return `${this.constructor.name}_${this.id}`;
   }
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
@@ -57,7 +59,7 @@ export abstract class InStream {
   }
   /* ~ */
 
-  readonly error = Promise.withResolvers<Error | null>();
+  readonly safeguard = Promise.withResolvers<void>();
 
   constructor() {
     this.writable = new WritableStream<Uint8Array>(
@@ -77,7 +79,9 @@ export abstract class InStream {
   @traceOut(_TRACE)
   private _wsStart(_wc_x: WritableStreamDefaultController) {
     /*#static*/ if (_TRACE) {
-      console.log(`${trace.indent}>>>>>>> ${this._type_}._wsStart() >>>>>>>`);
+      console.log(
+        `${trace.indent}>>>>>>> ${this._type_id_}._wsStart() >>>>>>>`,
+      );
     }
     ///
   }
@@ -91,7 +95,9 @@ export abstract class InStream {
   @traceOut(_TRACE)
   private _wsWrite(chunk_x: Uint8Array) {
     /*#static*/ if (_TRACE) {
-      console.log(`${trace.indent}>>>>>>> ${this._type_}._wsWrite() >>>>>>>`);
+      console.log(
+        `${trace.indent}>>>>>>> ${this._type_id_}._wsWrite() >>>>>>>`,
+      );
       console.log(`${trace.dent}chunk_x.length: ${chunk_x.length}`);
     }
     if (this.wsDone$) return;
@@ -134,7 +140,9 @@ export abstract class InStream {
   @traceOut(_TRACE)
   private _wsClose() {
     /*#static*/ if (_TRACE) {
-      console.log(`${trace.indent}>>>>>>> ${this._type_}._wsClose() >>>>>>>`);
+      console.log(
+        `${trace.indent}>>>>>>> ${this._type_id_}._wsClose() >>>>>>>`,
+      );
     }
     /*#static*/ if (INOUT) {
       assert(this.wsCap$ === undefined);
@@ -157,7 +165,9 @@ export abstract class InStream {
   @traceOut(_TRACE)
   private _wsAbort(r_x: unknown) {
     /*#static*/ if (_TRACE) {
-      console.log(`${trace.indent}>>>>>>> ${this._type_}._wsAbort() >>>>>>>`);
+      console.log(
+        `${trace.indent}>>>>>>> ${this._type_id_}._wsAbort() >>>>>>>`,
+      );
       console.log(`${trace.dent}reason: ${r_x}`);
     }
     ///
@@ -166,7 +176,7 @@ export abstract class InStream {
   @traceOut(_TRACE)
   cleanup() {
     /*#static*/ if (_TRACE) {
-      console.log(`${trace.indent}>>>>>>> ${this._type_}.cleanup() >>>>>>>`);
+      console.log(`${trace.indent}>>>>>>> ${this._type_id_}.cleanup() >>>>>>>`);
     }
     /* Coding is done but write may still be pending. Let write run, and set
     `wsDone$` to `true` to ignore rest writes if any. */

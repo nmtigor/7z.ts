@@ -3,105 +3,46 @@
  * @license MIT
  ******************************************************************************/
 
+import { _TRACE } from "@fe-src/preNs.ts";
 import "../../jslang.ts";
 import { decodeABV, encodeStr } from "../../util/string.ts";
+import { trace, traceOut } from "../../util/trace.ts";
 import { LzmaDecodeStream } from "./LzmaDecodeStream.ts";
 import { LzmaEncodeStream } from "./LzmaEncodeStream.ts";
 import type { CompressionMode } from "./alias.ts";
+import { MAX_UINT48 } from "./alias.ts";
 /*80--------------------------------------------------------------------------*/
 
 export const Lzma = new class {
   /**
-   * Compress data using LZMA algorithm
-   *
-   * @headconst @param data_x Data to compress
-   * @const @param mode_x
-   * @return Compressed data
-   */
-  async compress(
-    data_x: Uint8Array,
-    mode_x: CompressionMode = 5,
-  ): Promise<Uint8Array> {
-    const les = new LzmaEncodeStream({ size: data_x.length, mode: mode_x });
-
-    const ws_ = les.writable;
-    const writer = ws_.getWriter();
-    // const ChunkSize = 4;
-    // for (let i = 0, iI = data_x.length; i < iI; i += ChunkSize) {
-    //   await writer.ready;
-    //   await writer.write(new Uint8Array(data_x.slice(i, i + ChunkSize)));
-    //   if (lds.wsDone) break;
-    // }
-    await writer.ready;
-    await writer.write(data_x);
-    // console.log(`%crun here: compress()`, `color:yellow`);
-    writer.releaseLock();
-    await ws_.close();
-
-    const ret = await Uint8Array.fromRsU8ary(les.readable);
-
-    const err = await les.error.promise;
-    if (err) throw err;
-
-    return ret;
-  }
-
-  /**
-   * Compress a string using LZMA algorithm
-   *
-   * @const @param str_x
-   * @const @param mode_x
-   * @return Compressed data
-   */
-  compressString(
-    str_x: string,
-    mode_x: CompressionMode = 5,
-  ): Promise<Uint8Array> {
-    return this.compress(encodeStr(str_x), mode_x);
-  }
-
-  /**
-   * Compress data from a readable stream using LZMA algorithm
-   *
-   * @headconst @param rs_x Readable stream of data to compress
-   * @const @param mode_x
-   */
-  compressRs(
-    rs_x: ReadableStream<Uint8Array>,
-    mode_x: CompressionMode = 5,
-  ): LzmaEncodeStream {
-    const les = new LzmaEncodeStream({ mode: mode_x });
-    rs_x.pipeThrough(les);
-    return les;
-  }
-  /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
-
-  /**
    * Decompress LZMA compressed data
    *
    * @headconst @param data_x Compressed data
    * @return Decompressed data
    */
+  @traceOut(_TRACE)
   async decompress(data_x: Uint8Array): Promise<Uint8Array> {
+    /*#static*/ if (_TRACE) {
+      console.log(`${trace.indent}>>>>>>> Lzma.decompress() >>>>>>>`);
+    }
     const lds = new LzmaDecodeStream();
 
-    const ws_ = lds.writable;
-    const writer = ws_.getWriter();
-    // const ChunkSize = 4;
-    // for (let i = 0, iI = data_x.length; i < iI; i += ChunkSize) {
-    //   await writer.ready;
-    //   await writer.write(new Uint8Array(data_x.slice(i, i + ChunkSize)));
-    // }
-    await writer.ready;
-    await writer.write(data_x);
-    // console.log(`%crun here: decompress()`, `color:yellow`);
-    writer.releaseLock();
-    await ws_.close();
+    {
+      await using ldsWritable = lds.writable;
+      using ldsWriter = ldsWritable.getWriter();
+      // const ChunkSize = 4;
+      // for (let i = 0, iI = data_x.length; i < iI; i += ChunkSize) {
+      //   await ldsWriter.ready;
+      //   await ldsWriter.write(new Uint8Array(data_x.slice(i, i + ChunkSize)));
+      // }
+      await ldsWriter.ready;
+      await ldsWriter.write(data_x);
+      // console.log(`%crun here: decompress()`, `color:yellow`);
+    }
 
     const ret = await Uint8Array.fromRsU8ary(lds.readable);
 
-    const err = await lds.error.promise;
-    if (err) throw err;
+    await lds.safeguard.promise;
 
     return ret;
   }
@@ -112,7 +53,11 @@ export const Lzma = new class {
    * @headconst @param data_x Compressed data
    * @return Decompressed data
    */
+  @traceOut(_TRACE)
   async decompressString(data_x: Uint8Array): Promise<string> {
+    /*#static*/ if (_TRACE) {
+      console.log(`${trace.indent}>>>>>>> Lzma.decompressString() >>>>>>>`);
+    }
     const decodedByteArray = await this.decompress(data_x);
     try {
       return decodeABV(decodedByteArray);
@@ -127,10 +72,95 @@ export const Lzma = new class {
    *
    * @headconst @param rs_x Readable stream of compressed data
    */
+  @traceOut(_TRACE)
   decompressRs(rs_x: ReadableStream<Uint8Array>): LzmaDecodeStream {
+    /*#static*/ if (_TRACE) {
+      console.log(`${trace.indent}>>>>>>> Lzma.decompressRs() >>>>>>>`);
+    }
     const lds = new LzmaDecodeStream();
     rs_x.pipeThrough(lds);
     return lds;
+  }
+  /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
+
+  /**
+   * Compress data using LZMA algorithm
+   *
+   * @headconst @param data_x Data to compress
+   * @const @param mode_x
+   * @return Compressed data
+   */
+  @traceOut(_TRACE)
+  async compress(
+    data_x: Uint8Array,
+    mode_x: CompressionMode = 5,
+  ): Promise<Uint8Array> {
+    /*#static*/ if (_TRACE) {
+      console.log(`${trace.indent}>>>>>>> Lzma.compress() >>>>>>>`);
+    }
+    const les = new LzmaEncodeStream({
+      size: data_x.length <= MAX_UINT48 ? data_x.length : 0,
+      mode: mode_x,
+    });
+
+    {
+      await using lesWriable = les.writable;
+      using lesWriter = lesWriable.getWriter();
+      // const ChunkSize = 4;
+      // for (let i = 0, iI = data_x.length; i < iI; i += ChunkSize) {
+      //   await lesWriter.ready;
+      //   await lesWriter.write(new Uint8Array(data_x.slice(i, i + ChunkSize)));
+      //   if (lds.wsDone) break;
+      // }
+      await lesWriter.ready;
+      await lesWriter.write(data_x);
+      // console.log(`%crun here: compress()`, `color:yellow`);
+    }
+    /* MUST `lesWriable.close()` before `fromRsU8ary()`, otherwise it will
+    stuck. */
+
+    const ret = await Uint8Array.fromRsU8ary(les.readable);
+
+    await les.safeguard.promise;
+
+    return ret;
+  }
+
+  /**
+   * Compress a string using LZMA algorithm
+   *
+   * @const @param str_x
+   * @const @param mode_x
+   * @return Compressed data
+   */
+  @traceOut(_TRACE)
+  async compressString(
+    str_x: string,
+    mode_x: CompressionMode = 5,
+  ): Promise<Uint8Array> {
+    /*#static*/ if (_TRACE) {
+      console.log(`${trace.indent}>>>>>>> Lzma.compressString() >>>>>>>`);
+    }
+    return await this.compress(encodeStr(str_x), mode_x);
+  }
+
+  /**
+   * Compress data from a readable stream using LZMA algorithm
+   *
+   * @headconst @param rs_x Readable stream of data to compress
+   * @const @param mode_x
+   */
+  @traceOut(_TRACE)
+  compressRs(
+    rs_x: ReadableStream<Uint8Array>,
+    mode_x: CompressionMode = 5,
+  ): LzmaEncodeStream {
+    /*#static*/ if (_TRACE) {
+      console.log(`${trace.indent}>>>>>>> Lzma.compressRs() >>>>>>>`);
+    }
+    const les = new LzmaEncodeStream({ mode: mode_x });
+    rs_x.pipeThrough(les);
+    return les;
   }
 }();
 /*80--------------------------------------------------------------------------*/

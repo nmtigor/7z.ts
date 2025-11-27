@@ -23,6 +23,10 @@ import * as Is from "./util/is.ts";
 
 declare global {
   interface Object {
+    /**
+     * @headconst @param rhs
+     * @const @param valve_x
+     */
     eql(rhs_x: unknown, valve_x?: uint): boolean;
   }
 
@@ -125,10 +129,6 @@ export function eql(lhs_x: unknown, rhs_x: unknown, valve_x = 100): boolean {
   return eql_impl_(lhs_x, rhs_x);
 }
 
-/**
- * @headconst @param rhs
- * @const @param valve_x
- */
 Reflect.defineProperty(Object.prototype, "eql", {
   value(this: Object, rhs_x: unknown, valve_x = 100) {
     valve_ = valve_x;
@@ -800,8 +800,16 @@ Math.clamp = (min_x: number, val_x: number, max_x: number) =>
 /*80--------------------------------------------------------------------------*/
 
 declare global {
+  interface ReadableStreamDefaultReader<R = any> {
+    [Symbol.dispose](): void;
+  }
+
   interface ReadableStream<R = any> {
     [Symbol.asyncIterator](): AsyncIterableIterator<R>;
+  }
+
+  interface WritableStreamDefaultWriter<W = any> {
+    [Symbol.dispose](): void;
   }
 
   interface WritableStream<W = any> {
@@ -809,21 +817,26 @@ declare global {
   }
 }
 
+ReadableStreamDefaultReader.prototype[Symbol.dispose] = function (this) {
+  this.releaseLock();
+};
+
 /** Ref. https://stackoverflow.com/a/77377871 */
 ReadableStream.prototype[Symbol.asyncIterator] ??= async function* (this) {
-  const reader = this.getReader();
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) return;
-      yield value;
-    }
-  } finally {
-    reader.releaseLock();
+  using reader = this.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) return;
+    yield value;
   }
 };
 
+WritableStreamDefaultWriter.prototype[Symbol.dispose] = function (this) {
+  this.releaseLock();
+};
+
 WritableStream.prototype[Symbol.asyncDispose] = async function (this) {
+  // console.log(`%crun here: `, `color:red`);
   await this.close();
 };
 /*80--------------------------------------------------------------------------*/

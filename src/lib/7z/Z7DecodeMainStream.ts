@@ -24,15 +24,96 @@ import { Z7DecodeStream } from "./Z7DecodeStream.ts";
 
 type DecompressR_ = {
   lds: LzmaDecodeStream;
-  inSize: uint;
   outSize: uint | -1;
 };
 
-type LDSData_ = {
-  lds: LzmaDecodeStream;
-  outMax: uint;
-  outBufr: StreamBufr;
-};
+class LDSData_ {
+  readonly #lds;
+
+  #outMax: uint = 0;
+  readonly #outBufr = new StreamBufr();
+
+  constructor(lds_x: LzmaDecodeStream) {
+    this.#lds = lds_x;
+  }
+  /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
+
+  /**
+   * @const @param outStop_x
+   * @const @param outStrt_x
+   */
+  async *#read(outStop_x: uint, outStrt_x: uint = this.#outMax) {
+    /*#static*/ if (INOUT) {
+      assert(this.#outMax <= outStrt_x);
+    }
+    using ldsReader = this.#lds.readable.getReader();
+    while (this.#outMax < outStop_x) {
+      const { done, value: u8a } = await ldsReader.read();
+      if (done) {
+        await this.#lds.safeguard.promise;
+        break;
+      }
+
+      const newMax = this.#outMax + u8a.length;
+      if (newMax <= outStrt_x) {
+        this.#outBufr.add(u8a, this.#outMax);
+      } else if (outStrt_x < this.#outMax) {
+        if (outStop_x < newMax) {
+          yield u8a.subarray(0, outStop_x - this.#outMax);
+          this.#outBufr.add(u8a.subarray(outStop_x - this.#outMax), outStop_x);
+        } else {
+          yield u8a;
+        }
+      } else {
+        if (this.#outMax < outStrt_x) {
+          this.#outBufr.add(
+            u8a.subarray(0, outStrt_x - this.#outMax),
+            this.#outMax,
+          );
+        }
+        if (outStop_x < newMax) {
+          yield u8a.subarray(
+            outStrt_x - this.#outMax,
+            outStop_x - this.#outMax,
+          );
+          this.#outBufr.add(u8a.subarray(outStop_x - this.#outMax), outStop_x);
+        } else {
+          yield this.#outMax === outStrt_x
+            ? u8a
+            : u8a.subarray(outStrt_x - this.#outMax);
+        }
+      }
+      this.#outMax = newMax;
+    }
+  }
+
+  /**
+   * @const @param outStop_x
+   * @const @param outStrt_x
+   */
+  async *createGen(
+    outStop_x: uint,
+    outStrt_x: uint,
+  ): AsyncGenerator<Uint8Array> {
+    if (outStrt_x < this.#outMax) {
+      if (this.#outMax < outStop_x) {
+        const u8a_a = this.#outBufr.peek(
+          this.#outMax - outStrt_x,
+          outStrt_x,
+        );
+        for (const u8a of u8a_a) yield u8a;
+
+        yield* await this.#read(outStop_x);
+      } else {
+        const u8a_a = this.#outBufr.peek(outStop_x - outStrt_x, outStrt_x);
+        for (const u8a of u8a_a) yield u8a;
+      }
+    } else {
+      yield* await this.#read(outStop_x, outStrt_x);
+    }
+    this.#outBufr.disuse(outStrt_x, outStop_x);
+  }
+}
 
 export class Z7DecodeMainStream extends Z7DecodeStream {
   readonly #db = new CDbEx();
@@ -55,11 +136,17 @@ export class Z7DecodeMainStream extends Z7DecodeStream {
    * @const @param fo_x
    * @throw {@linkcode UnsupportedFeature}
    */
-  #decompress(folders_x: CFolders, fo_x: uint8): DecompressR_ {
+  @traceOut(_TRACE)
+  private _decompress(folders_x: CFolders, fo_x: uint8): DecompressR_ {
+    /*#static*/ if (_TRACE) {
+      console.log(
+        `${trace.indent}>>>>>>> ${this._type_id_}._decompress( , fo_x: ${fo_x}) >>>>>>>`,
+      );
+    }
     const bufr = this.bufr$;
 
     const j_ = folders_x.FoToStartPsi[fo_x];
-    const streamSize: uint = folders_x.PackPositions[j_ + 1] -
+    let inSize: uint = folders_x.PackPositions[j_ + 1] -
       folders_x.PackPositions[j_];
 
     const folder = folders_x.folder_a[fo_x];
@@ -69,15 +156,18 @@ export class Z7DecodeMainStream extends Z7DecodeStream {
 
     const outSize =
       folders_x.CoderUnpackSizes[folders_x.FoToCoderUnpackSizes[fo_x]];
+    if (inSize === 0) {
+      inSize = outSize * 2;
+    }
     const lds = new LzmaDecodeStream({ props: coder.Props, outSize });
-    const streamStrt = bufr.caofs;
-    const streamStop = streamStrt + streamSize;
-    // console.log({ streamStrt, streamStop });
+    const aofs_0 = bufr.aofs_0;
     (async () => {
-      const ldsWriter = lds.writable.getWriter();
-      let writtn = streamSize - bufr.prepare(streamSize);
+      await using ldsWritable = lds.writable;
+      using ldsWriter = ldsWritable.getWriter();
+      let cofs = bufr.cofs;
+      let writtn = inSize - bufr.prepare(inSize);
       if (writtn > 0) {
-        for (const u8a of bufr.peek(writtn, streamStrt)) {
+        for (const u8a of bufr.peek(writtn, aofs_0 + cofs)) {
           await ldsWriter.ready;
           // console.log(
           //   Array.from(u8a).map((v) => v.toString(16)),
@@ -87,36 +177,26 @@ export class Z7DecodeMainStream extends Z7DecodeStream {
           // );
           await ldsWriter.write(u8a);
         }
+        cofs += writtn;
       }
-      let rest: uint;
-      const VALVE = 10_000;
-      let valve = VALVE;
-      while ((rest = streamSize - writtn) > 0 && --valve) {
+      let lastChunk;
+      while (inSize - writtn > 0) {
         await this.chunk$;
+        /* Actual instream size is smaller than `inSize`.
+         */ if (this.wsDone$) break;
+
         await ldsWriter.ready;
 
-        if (this.wsU8a$!.length >= rest) {
-          if (this.wsU8a$!.length > rest) {
-            await ldsWriter.write(this.wsU8a$!.subarray(0, rest));
-            bufr.add(this.wsU8a$!.subarray(rest), streamStop);
-          } else {
-            await ldsWriter.write(this.wsU8a$!);
-            bufr.add(this.wsU8a$!);
-          }
-          break;
-        }
+        lastChunk = this.wsU8a$!;
 
-        await ldsWriter.write(this.wsU8a$!);
-        writtn += this.wsU8a$!.length;
+        await ldsWriter.write(lastChunk);
+        cofs += lastChunk.length;
+        writtn += lastChunk.length;
       }
-      assert(valve, `Loop ${VALVE}±1 times`);
 
-      ldsWriter.releaseLock();
-      await lds.writable.close();
-
-      bufr.cofs += streamSize;
+      bufr.cofs = cofs;
     })();
-    return { lds, inSize: streamSize, outSize };
+    return { lds, outSize };
   }
 
   /**
@@ -127,87 +207,51 @@ export class Z7DecodeMainStream extends Z7DecodeStream {
    * @throw {@linkcode ExceedSize}
    * @throw {@linkcode UnsupportedFeature}
    */
-  async #createGen(
-    fo_x: uint8,
-    outStrt_x: uint,
-    outSize_x: uint,
-  ): Promise<AsyncGenerator<Uint8Array>> {
+  @traceOut(_TRACE)
+  private async _createGen(fo_x: uint8, outStrt_x: uint, outSize_x: uint) {
+    /*#static*/ if (_TRACE) {
+      console.log(
+        `${trace.indent}>>>>>>> ${this._type_id_}._createGen( fo_x: ${fo_x}, outStrt_x: ${outStrt_x}, outSize_x: ${outSize_x}) >>>>>>>`,
+      );
+    }
     if (!this.#ldsdata_a.at(fo_x)) {
       const j_ = this.#db.FoToStartPsi[fo_x];
       const packPosition = this.#db.PackPositions[j_];
-      await this.locateAsync$(packPosition);
-      const { lds } = this.#decompress(this.#db, fo_x);
-      this.#ldsdata_a[fo_x] = { lds, outMax: 0, outBufr: new StreamBufr() };
+      await this.locateAsync$(this.#db.PackPos + packPosition);
+      const { lds } = this._decompress(this.#db, fo_x);
+      this.#ldsdata_a[fo_x] = new LDSData_(lds);
     }
     const ldsdata = this.#ldsdata_a[fo_x];
-    const outStop = outStrt_x + outSize_x;
-    return (async function* () {
-      if (outStrt_x < ldsdata.outMax) {
-        const u8a_a = ldsdata.outBufr.peek(outSize_x, outStrt_x);
-        for (const u8a of u8a_a) yield u8a;
-      } else {
-        const reader = ldsdata.lds.readable.getReader();
-        try {
-          while (ldsdata.outMax < outStop) {
-            const { done, value } = await reader.read();
-            if (done) {
-              const err = await ldsdata.lds.error;
-              if (err) throw err;
-              break;
-            }
-
-            const newMax = ldsdata.outMax + value.length;
-            if (ldsdata.outMax <= outStrt_x && outStrt_x < newMax) {
-              if (ldsdata.outMax < outStrt_x) {
-                ldsdata.outBufr.add(
-                  value.subarray(0, outStrt_x - ldsdata.outMax),
-                );
-              }
-              if (newMax <= outStop) {
-                yield value.subarray(outStrt_x - ldsdata.outMax);
-              } else {
-                yield value.subarray(
-                  outStrt_x - ldsdata.outMax,
-                  outStop - ldsdata.outMax,
-                );
-                ldsdata.outBufr.add(
-                  value.subarray(outStop - ldsdata.outMax),
-                  outStop,
-                );
-              }
-            } else {
-              ldsdata.outBufr.add(value);
-            }
-            ldsdata.outMax = newMax;
-          }
-        } finally {
-          reader.releaseLock();
-        }
-      }
-      ldsdata.outBufr.disuse(outStrt_x, outStop);
-    })();
+    return ldsdata.createGen(outStrt_x + outSize_x, outStrt_x);
   }
 
-  [Symbol.asyncIterator](): AsyncIterator<ExtractedFile> {
+  @traceOut(_TRACE)
+  [Symbol.asyncIterator]() {
+    /*#static*/ if (_TRACE) {
+      console.log(
+        `${trace.indent}>>>>>>> ${this._type_id_}[Symbol.asyncIterator]() >>>>>>>`,
+      );
+    }
     let fi: uint = 0;
-    const fI = this.#db.Names.length;
+    const fiI = this.#db.Names.length;
 
+    /*#static*/ if (INOUT) {
+      assert(this.bufr$.ctxsLen === 1);
+    }
     this.bufr$.cofs = kHeaderSize;
-    this.bufr$.ctxIn(); //!
+    this.bufr$.ctxIn();
 
-    return {
+    const ait: AsyncIterator<ExtractedFile> = {
+      return: async () => {
+        this.bufr$.ctxOut();
+        this.cleanup(); //!
+        return { value: undefined, done: true };
+      },
       next: async () => {
-        if (fi >= fI) {
-          this.bufr$.ctxOut();
+        if (fi >= fiI) return ait.return!();
 
-          return { value: undefined, done: true };
-        }
-
-        const path = this.#db.Names[fi];
-        const meta = this.#db.Files[fi];
-        // console.log({ path, meta });
         let gen: AsyncGenerator<Uint8Array> | undefined;
-        if (meta.HasStream) {
+        if (this.#db.Files[fi].HasStream) {
           const fo = this.#db.FiToFo[fi];
           /*#static*/ if (INOUT) {
             assert(0 <= fo && fo < this.#db.NumFolders);
@@ -217,12 +261,12 @@ export class Z7DecodeMainStream extends Z7DecodeStream {
             outStrt += this.#db.Files[fj].Size;
           }
           // console.log({ outStrt });
-          gen = await this.#createGen(fo, outStrt, meta.Size);
+          gen = await this._createGen(fo, outStrt, this.#db.Files[fi].Size);
         }
-        fi += 1;
-        return { value: new ExtractedFile(path, meta, gen) };
+        return { value: new ExtractedFile(this.#db, fi++, gen) };
       },
     };
+    return ait;
   }
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
@@ -237,16 +281,15 @@ export class Z7DecodeMainStream extends Z7DecodeStream {
   async #processAsync(): Promise<void> {
     /*#static*/ if (_TRACE) {
       console.log(
-        `${trace.indent}>>>>>>> ${this._type_}.#processAsync() >>>>>>>`,
+        `${trace.indent}>>>>>>> ${this._type_id_}.#processAsync() >>>>>>>`,
       );
     }
     const bufr = this.bufr$;
 
-    let nextHeaderOffset: bigint | uint;
-    let nextHeaderSize: bigint | uint;
+    let nextHeaderOffset: uint | bigint;
+    let nextHeaderSize: uint | bigint;
     let nextHeaderCRC: uint32;
     await this.prepareAsync$(kHeaderSize);
-    bufr.ctxIn();
     {
       if (
         !(bufr.readByte() === /* "7" */ 0x37 &&
@@ -268,7 +311,6 @@ export class Z7DecodeMainStream extends Z7DecodeStream {
       // console.log({ nextHeaderOffset, nextHeaderSize });
       nextHeaderCRC = bufr.readUint32();
     }
-    bufr.ctxOut();
     if (bufr.caofs !== kHeaderSize) throw new IncorrectFormat();
     bufr.disuse(0, kHeaderSize);
 
@@ -280,12 +322,11 @@ export class Z7DecodeMainStream extends Z7DecodeStream {
     }
     if (nextHeaderSize >= 2 ** 20) {
       throw new ExcessiveMemoryUsage(
-        `nextHeaderSize: 0x${nextHeaderSize.toString(16)}`,
+        `nextHeaderSize: ${nextHeaderSize} (>=2**20)`,
       );
     }
     bufr.ctxIn();
     {
-      let headerPackStrt: uint | undefined;
       let headerFolders: CFolders | undefined;
       let headerUnpackSizes: uint[] | undefined;
       await this.locateAsync$(nextHeaderOffset = Number(nextHeaderOffset));
@@ -293,33 +334,27 @@ export class Z7DecodeMainStream extends Z7DecodeStream {
       if (nextHeaderCRC !== calcCRC32(bufr.peek(nextHeaderSize))) {
         throw new IncorrectFormat();
       }
-      const ctxStrt = bufr.caofs;
-      const ctxStop = ctxStrt + nextHeaderSize;
-      bufr.ctxIn();
-      {
-        const ty_0 = bufr.readUint();
-        if (ty_0 === NID.kEncodedHeader) {
-          headerFolders = new CFolders();
-          headerUnpackSizes = [];
-          headerPackStrt = bufr.readStreamsInfo(
-            nextHeaderOffset,
-            nextHeaderOffset + nextHeaderSize,
-            headerFolders,
-            headerUnpackSizes,
-          );
-          // console.log({ headerPackStrt });
-          // console.log(headerFolders);
-          // console.log(`${headerFolders.folder_a[0].Coders[0]}`);
-          // console.log(headerUnpackSizes);
-        } else if (ty_0 === NID.kHeader) {
-          bufr.readHeader(nextHeaderOffset + nextHeaderSize, this.#db);
-        } else {
-          throw new IncorrectFormat();
-        }
+      const useStrt = bufr.caofs;
+      const useStop = useStrt + nextHeaderSize;
+      // bufr.ctxIn();
+      // {
+      const type = bufr.readUint();
+      if (type === NID.kEncodedHeader) {
+        headerFolders = new CFolders();
+        headerUnpackSizes = [];
+        bufr.readStreamsInfo(useStop, headerFolders, headerUnpackSizes);
+        // console.log(headerFolders);
+        // console.log(`Coder: ${headerFolders.folder_a.at(0)?.Coders.at(0)}`);
+        // console.log(headerUnpackSizes);
+      } else if (type === NID.kHeader) {
+        bufr.readHeader(nextHeaderOffset + nextHeaderSize, this.#db);
+      } else {
+        throw new IncorrectFormat();
       }
-      bufr.ctxOut();
-      if (bufr.caofs !== ctxStop) throw new IncorrectFormat();
-      bufr.disuse(ctxStrt, ctxStop);
+      // }
+      // bufr.ctxOut();
+      if (bufr.caofs !== useStop) throw new IncorrectFormat();
+      bufr.disuse(useStrt, useStop);
 
       if (headerFolders) {
         if (headerFolders.NumFolders !== 1) {
@@ -330,77 +365,41 @@ export class Z7DecodeMainStream extends Z7DecodeStream {
         const fo = 0;
         const j_ = headerFolders.FoToStartPsi[fo];
         const packPosition = headerFolders.PackPositions[j_];
-        await this.locateAsync$(headerPackStrt! + packPosition);
+        await this.locateAsync$(headerFolders.PackPos + packPosition);
         const streamStrt = bufr.caofs;
-        const { lds, inSize, outSize } = this.#decompress(headerFolders, fo);
-        const streamStop = streamStrt + inSize;
+        const { lds, outSize } = this._decompress(headerFolders, fo);
         const zdhs = new Z7DecodeHeaderStream(outSize, this.#db);
         await lds.readable.pipeTo(zdhs.writable);
 
-        let err = await lds.error.promise;
-        if (err) throw err;
+        await lds.safeguard.promise;
         if (!lds.checkSize()) throw new IncorrectFormat();
         const u32 = headerFolders.FolderCRCs[fo];
         if (u32 && u32 !== calcCRC32(zdhs.chunk_a)) {
           throw new IncorrectFormat();
         }
 
-        err = await zdhs.error.promise;
-        if (err) throw err;
+        await zdhs.safeguard.promise;
 
-        // console.log("bufr.caofs: ", bufr.caofs, ", streamStop: ", streamStop);
-        if (bufr.caofs !== streamStop) throw new IncorrectFormat();
-        bufr.disuse(streamStrt, streamStop);
+        // console.log("bufr.caofs: ", bufr.caofs);
+        bufr.disuse(streamStrt, bufr.caofs);
       }
       // console.log(this.#db);
-
-      //jjjj TOCLEANUP
-      // const fo = 0;
-      // const j_ = this.#db.FoToStartPsi[fo];
-      // const packPosition = this.#db.PackPositions[j_];
-      // await this.locateAsync$(packPosition);
-      // const streamStrt = bufr.caofs;
-      // const { lds, inSize, outSize } = this.#decompress(this.#db, fo);
-      // const streamStop = streamStrt + inSize;
-      // const ret = await Uint8Array.fromRsU8ary(lds.readable);
-      // console.log("ret: ", ret.length);
-
-      // let err = await lds.error.promise;
-      // console.log(`%crun here: `, `color:blue`);
-      // if (err) throw err;
-      // if (!lds.checkSize()) throw new IncorrectFormat();
-
-      // if (bufr.caofs !== streamStop) throw new IncorrectFormat();
-      // bufr.disuse(streamStrt, streamStop);
-      //~
-
-      //jjjj TOCLEANUP
-      // for (let fi = 0, fI = this.#db.Names.length; fi < fI; fi++) {
-      //   this.#tak ??= Promise.withResolvers();
-      //   this.#tuk?.resolve(
-      //     new ExtractedFile(this.#db.Names[fi], this.#db.Files[fi]),
-      //   );
-      //   this.#tuk = undefined;
-      //   console.log(`%crun here: `, `color:#abc`);
-      //   await this.#tak.promise;
-      // }
-      // this.#tuk?.resolve(null);
-      // this.#tuk = undefined;
     }
     bufr.ctxOut();
   }
 
   #extract(): void {
     this.#processAsync().then(() => {
-      this.error.resolve(null);
-    }).catch(this.error.resolve)
-      .finally(() => {
-        // console.log(
-        //   `%crun here: ${this._type_}.#processAsync().finally()`,
-        //   `color:orange`,
-        // );
-        this.cleanup();
-      });
+      this.safeguard.resolve();
+    }).catch(this.safeguard.reject);
+    //jjjj TOCLEANUP
+    // .finally(() => {
+    //   console.log(
+    //     `%crun here: ${this._type_id_}.#processAsync().finally()`,
+    //     `color:orange`,
+    //   );
+    //   this.cleanup();
+    // });
   }
 }
 /*80--------------------------------------------------------------------------*/

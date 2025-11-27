@@ -6,8 +6,9 @@
  * @license MIT
  ******************************************************************************/
 
-import type { int, uint, uint32, uint8 } from "@fe-lib/alias.ts";
+import type { int, uint, uint32, uint8 } from "../../alias.ts";
 import "@fe-lib/jslang.ts";
+import { writeUint8m } from "../util.ts";
 import type { CDist, CLen, CProb, CProbPrice, CState, Mode } from "./alias.ts";
 import {
   INFINITY_PRICE,
@@ -271,10 +272,7 @@ export class LzmaEncoder {
     this.properties[0] = ((this.#pb * 5 + this.#lp) * 9 + this.#lc) & 0xFF;
 
     /* Next 4 bytes store dictionary size in little-endian format */
-    for (let byteIndex = 0; byteIndex < 4; byteIndex++) {
-      this.properties[1 + byteIndex] = (this.#dictSize >> (8 * byteIndex)) &
-        0xFF;
-    }
+    writeUint8m(this.#dictSize, 4, this.properties, 1);
 
     this.#litenc.Create({ lc: this.#lc, lp: this.#lp });
 

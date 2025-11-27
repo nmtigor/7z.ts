@@ -8,7 +8,8 @@
  ******************************************************************************/
 
 import { _TRACE, INOUT } from "../../../preNs.ts";
-import type { uint, uint32, uint8 } from "../../alias.ts";
+import type { uint, uint8 } from "../../alias.ts";
+import { LOG_cssc } from "../../alias.ts";
 import "../../jslang.ts";
 import { assert, bind } from "../../util.ts";
 import { trace, traceOut } from "../../util/trace.ts";
@@ -125,8 +126,9 @@ export class LzmaDecodeStream extends InStream {
 
     this.readable = new ReadableStream<Uint8Array>({
       start: this._rsStart,
-      pull: this._rsPull,
-      cancel: this._rsCancel,
+      //jjjj TOCLEANUP
+      // pull: this._rsPull,
+      // cancel: this._rsCancel,
     });
 
     this.#decompress();
@@ -180,7 +182,7 @@ export class LzmaDecodeStream extends InStream {
   async readByteAsync(): Promise<uint8 | -1> {
     // /*#static*/ if (_TRACE) {
     //   console.log(
-    //     `${trace.indent}>>>>>>> ${this._type_}.readByteAsync() >>>>>>>`,
+    //     `${trace.indent}>>>>>>> ${this._type_id_}.readByteAsync() >>>>>>>`,
     //   );
     // }
     const ret = this.#readByteImpl();
@@ -195,7 +197,9 @@ export class LzmaDecodeStream extends InStream {
   @traceOut(_TRACE)
   private _rsStart(rc_x: ReadableStreamDefaultController<Uint8Array>) {
     /*#static*/ if (_TRACE) {
-      console.log(`${trace.indent}>>>>>>> ${this._type_}._rsStart() >>>>>>>`);
+      console.log(
+        `${trace.indent}>>>>>>> ${this._type_id_}._rsStart() >>>>>>>`,
+      );
     }
     this.#rsEnque = (_y) => {
       this.#enqSize += _y.length;
@@ -204,26 +208,28 @@ export class LzmaDecodeStream extends InStream {
     this.#rsClose = () => rc_x.close();
   }
 
-  @bind
-  @traceOut(_TRACE)
-  private _rsPull(_rc_x: ReadableStreamDefaultController<Uint8Array>) {
-    /*#static*/ if (_TRACE) {
-      console.log(`${trace.indent}>>>>>>> ${this._type_}._rsPull() >>>>>>>`);
-    }
-    ///
-  }
+  //jjjj TOCLEANUP
+  // @bind
+  // @traceOut(_TRACE)
+  // private _rsPull(_rc_x: ReadableStreamDefaultController<Uint8Array>) {
+  //   /*#static*/ if (_TRACE) {
+  //     console.log(`${trace.indent}>>>>>>> ${this._type_id_}._rsPull() >>>>>>>`);
+  //   }
+  //   ///
+  // }
 
-  @bind
-  @traceOut(_TRACE)
-  private _rsCancel(r_x: unknown) {
-    /*#static*/ if (_TRACE) {
-      console.log(
-        `${trace.indent}>>>>>>> ${this._type_}._rsCancel() >>>>>>>`,
-      );
-      console.log(`${trace.dent}reason: ${r_x}`);
-    }
-    ///
-  }
+  //jjjj TOCLEANUP
+  // @bind
+  // @traceOut(_TRACE)
+  // private _rsCancel(r_x: unknown) {
+  //   /*#static*/ if (_TRACE) {
+  //     console.log(
+  //       `${trace.indent}>>>>>>> ${this._type_id_}._rsCancel() >>>>>>>`,
+  //     );
+  //     console.log(`${trace.dent}reason: ${r_x}`);
+  //   }
+  //   ///
+  // }
 
   /**
    * `in( 0 < len_x && len_x <= buf_x - ofs_x.length)`
@@ -235,11 +241,17 @@ export class LzmaDecodeStream extends InStream {
   writeFrom(buf_x: uint8[], ofs_x: uint, len_x: uint) {
     /*#static*/ if (_TRACE) {
       console.log(
-        `${trace.indent}>>>>>>> ${this._type_}.writeFrom() >>>>>>>`,
+        `${trace.indent}>>>>>>> ${this._type_id_}.writeFrom() >>>>>>>`,
       );
       console.log(`${trace.dent}`, { ofs_x, len_x });
     }
-    this.#rsEnque?.(new Uint8Array(buf_x.slice(ofs_x, ofs_x + len_x)));
+    this.#rsEnque?.(
+      new Uint8Array(
+        ofs_x === 0 && len_x === buf_x.length
+          ? buf_x
+          : buf_x.slice(ofs_x, ofs_x + len_x),
+      ),
+    );
   }
   /*49|||||||||||||||||||||||||||||||||||||||||||*/
 
@@ -274,7 +286,7 @@ export class LzmaDecodeStream extends InStream {
         this.#outSize = -1;
       } else {
         /* NOTE: If there is a problem with the decoder because of the length,
-      you can always set the length to -1 (N1_longLit) which means unknown. */
+        you can always set the length to -1 (N1_longLit) which means unknown. */
         const tmp_length = parseInt(hex_length, 16);
         this.#outSize = tmp_length <= MAX_UINT48 ? tmp_length : -1;
       }
@@ -290,7 +302,13 @@ export class LzmaDecodeStream extends InStream {
   }
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
+  @traceOut(_TRACE)
   async #processAsync(): Promise<void> {
+    /*#static*/ if (_TRACE) {
+      console.log(
+        `${trace.indent}>>>>>>> ${this._type_id_}.#processAsync() >>>>>>>`,
+      );
+    }
     await this.#initDecode();
 
     // while (await this.#chunker.processChunkAsync());
@@ -334,16 +352,16 @@ export class LzmaDecodeStream extends InStream {
 
   #decompress(): void {
     this.#processAsync().then(() => {
-      // console.log(`%crun here: ${this._type_}.#processAsync().then()`, `color:orange`);
-      this.error.resolve(null);
-    }).catch(this.error.resolve)
+      // console.log(`%crun here: ${this._type_id_}.#processAsync().then()`, `color:orange`);
+      this.safeguard.resolve();
+    }).catch(this.safeguard.reject)
       .finally(() => {
-        this.#rsEnque = undefined;
-        this.#rsClose();
         // console.log(
-        //   `%crun here: ${this._type_}.#processAsync().finally()`,
+        //   `%crun here: ${this._type_id_}.#processAsync().finally()`,
         //   `color:orange`,
         // );
+        this.#rsEnque = undefined;
+        this.#rsClose();
         this.cleanup();
       });
   }

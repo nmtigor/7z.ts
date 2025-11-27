@@ -3,7 +3,9 @@
  * @license LGPL-2.1
  ******************************************************************************/
 
+import { _TRACE } from "../../preNs.ts";
 import type { uint } from "../alias.ts";
+import { trace, traceOut } from "../util/trace.ts";
 import { InStream } from "./InStream.ts";
 import { NoInput } from "./util.ts";
 import { Z7StreamBufr } from "./Z7StreamBufr.ts";
@@ -18,10 +20,16 @@ export abstract class Z7DecodeStream extends InStream {
    * @headconst @param chunkCb_x
    * @throw {@linkcode NoInput}
    */
+  @traceOut(_TRACE)
   protected async prepareAsync$(
     len_x: uint,
     chunkCb_x?: () => void,
   ): Promise<void> {
+    /*#static*/ if (_TRACE) {
+      console.log(
+        `${trace.indent}>>>>>>> ${this._type_id_}.prepareAsync$( ${len_x}) >>>>>>>`,
+      );
+    }
     while (this.bufr$.prepare(len_x) > 0) {
       await this.chunk$;
       chunkCb_x?.();
@@ -37,7 +45,6 @@ export abstract class Z7DecodeStream extends InStream {
   /**
    * @const @param ofs_x in context
    * @throw {@linkcode NoInput}
-   * @throw {@linkcode ExceedSize}
    */
   protected async locateAsync$(ofs_x: uint): Promise<void> {
     if (ofs_x > this.bufr$.cofs) {

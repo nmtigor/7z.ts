@@ -1,6 +1,10 @@
 /gen/
+
+**/testdata/gen/
+**/7z/testdata/2025-08-03/
+
 /tsconfig.json
 /deno.lock
 
-/node_modules/
+node_modules/
 .vscode/

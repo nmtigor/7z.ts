@@ -426,9 +426,21 @@ export const enum Sortart {
   desc,
 }
 /*80--------------------------------------------------------------------------*/
-/* be */
 
-export type UpdateTheme_PUT = {
-  theme_j: string;
+export const LOG_cssc = {
+  selectionchange: "#cb9b8b",
+  selectionchange_1: "#ff8257",
+
+  xstate_transition: "#2196f3",
+  xstate_entry: "#1ba39a",
+  xstate_exit: "#506e6c",
+  resiz: "#fdf717",
+  intrs: "#adfd17",
+
+  performance: "#00ff00",
+
+  runhere: "#ff0000",
+
+  testinfo: "#fffc62ff",
 };
 /*80--------------------------------------------------------------------------*/

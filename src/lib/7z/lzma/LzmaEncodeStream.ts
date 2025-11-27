@@ -7,26 +7,35 @@
  * @license MIT
  ******************************************************************************/
 
-import type { uint, uint32, uint8 } from "@fe-lib/alias.ts";
+import type { uint, uint32, uint8 } from "../../alias.ts";
 import "@fe-lib/jslang.ts";
-import { _TRACE, INOUT } from "@fe-src/preNs.ts";
+import { _TRACE, INOUT } from "../../../preNs.ts";
 import { assert, bind } from "../../util.ts";
 import { trace, traceOut } from "../../util/trace.ts";
+import { RsU8aSize } from "../alias.ts";
+import { InStream } from "../InStream.ts";
 import type { CompressionMode, Mode } from "./alias.ts";
 import { MODES } from "./alias.ts";
 import { EncoderChunker } from "./CoderChunker.ts";
 import { LzmaEncoder } from "./LzmaEncoder.ts";
-import { InStream } from "../InStream.ts";
+import { writeUint8m } from "../util.ts";
 /*80--------------------------------------------------------------------------*/
 
-type LzmaEncodeStreamCtorP = { size?: uint; mode?: CompressionMode };
-
-const RsU8aSize = 1024;
+type LzmaEncodeStreamCtorP = {
+  size?: uint;
+  mode?: CompressionMode;
+  stal?: boolean;
+};
 
 /** @final */
 export class LzmaEncodeStream extends InStream {
   readonly #encoder = new LzmaEncoder();
   readonly #chunker = new EncoderChunker(this.#encoder);
+
+  readonly #size: uint;
+  readonly #mode: Mode;
+  /** standalone */
+  readonly #stal: boolean;
 
   /* readable */
   readonly #rsU8a = new Uint8Array(RsU8aSize);
@@ -41,17 +50,21 @@ export class LzmaEncodeStream extends InStream {
   /** @headconst @param _x */
   constructor(_x?: LzmaEncodeStreamCtorP) {
     super();
+    this.#size = _x?.size ?? 0;
+    this.#mode = MODES[_x?.mode ?? 5];
+    this.#stal = _x?.stal ?? true;
 
     this.readable = new ReadableStream<Uint8Array>(
       {
         start: this._rsStart,
-        pull: this._rsPull,
-        cancel: this._rsCancel,
+        //jjjj TOCLEANUP
+        // pull: this._rsPull,
+        // cancel: this._rsCancel,
       },
       // new ByteLengthQueuingStrategy({ highWaterMark: 16 * 1024 }),
     );
 
-    this.#compress(_x?.size ?? 0, _x?.mode ?? 5);
+    this.#compress();
   }
 
   // static async from(_x: string | URL, o_x?: LzmaEncodeStreamCtorP) {
@@ -71,8 +84,9 @@ export class LzmaEncodeStream extends InStream {
   @traceOut(_TRACE)
   async readTo(buf_x: uint8[], ofs_x: uint, len_x: uint): Promise<uint> {
     /*#static*/ if (_TRACE) {
-      console.log(`${trace.indent}>>>>>>> ${this._type_}.readTo() >>>>>>>`);
-      console.log(`${trace.dent}`, { ofs_x, len_x });
+      console.log(
+        `${trace.indent}>>>>>>> ${this._type_id_}.readTo( , ofs_x: ${ofs_x}, len_x: ${len_x}) >>>>>>>`,
+      );
     }
     if (this.wsU8a$ && this.wsOfs$ < this.wsU8a$.length) {
       const len_1 = Math.min(len_x, this.wsU8a$.length - this.wsOfs$);
@@ -91,6 +105,7 @@ export class LzmaEncodeStream extends InStream {
       this.tsRed$ = len_1;
     }
     // console.log(`${trace.dent}`, { ofs_x, len_x });
+    // console.log(`${trace.dent}wsDone$: `, this.wsDone$);
 
     if (this.wsDone$) return 0;
 
@@ -114,35 +129,39 @@ export class LzmaEncodeStream extends InStream {
   @traceOut(_TRACE)
   private _rsStart(rc_x: ReadableStreamDefaultController<Uint8Array>) {
     /*#static*/ if (_TRACE) {
-      console.log(`${trace.indent}>>>>>>> ${this._type_}._rsStart() >>>>>>>`);
+      console.log(
+        `${trace.indent}>>>>>>> ${this._type_id_}._rsStart() >>>>>>>`,
+      );
     }
     this.#rsEnque = (_y) => rc_x.enqueue(_y);
     this.#rsClose = () => rc_x.close();
   }
 
-  @bind
-  @traceOut(_TRACE)
-  private _rsPull(_rc_x: ReadableStreamDefaultController<Uint8Array>) {
-    /*#static*/ if (_TRACE) {
-      console.log(`${trace.indent}>>>>>>> ${this._type_}._rsPull() >>>>>>>`);
-    }
-    ///
-  }
+  //jjjj TOCLEANUP
+  // @bind
+  // @traceOut(_TRACE)
+  // private _rsPull(_rc_x: ReadableStreamDefaultController<Uint8Array>) {
+  //   /*#static*/ if (_TRACE) {
+  //     console.log(`${trace.indent}>>>>>>> ${this._type_id_}._rsPull() >>>>>>>`);
+  //   }
+  //   ///
+  // }
 
-  @bind
-  @traceOut(_TRACE)
-  private _rsCancel(r_x: unknown) {
-    /*#static*/ if (_TRACE) {
-      console.log(
-        `${trace.indent}>>>>>>> ${this._type_}._rsCancel() >>>>>>>`,
-      );
-      console.log(`${trace.dent}reason: ${r_x}`);
-    }
-    ///
-  }
+  //jjjj TOCLEANUP
+  // @bind
+  // @traceOut(_TRACE)
+  // private _rsCancel(r_x: unknown) {
+  //   /*#static*/ if (_TRACE) {
+  //     console.log(
+  //       `${trace.indent}>>>>>>> ${this._type_id_}._rsCancel() >>>>>>>`,
+  //     );
+  //     console.log(`${trace.dent}reason: ${r_x}`);
+  //   }
+  //   ///
+  // }
 
   /** @const @param val_x */
-  writeByte(val_x: uint32): void {
+  writeByte(val_x: uint): void {
     if (this.#rsOfs >= RsU8aSize) {
       this.#rsEnque?.(this.#rsU8a.slice());
       this.#rsOfs = 0;
@@ -156,22 +175,16 @@ export class LzmaEncodeStream extends InStream {
   // }
   /*49|||||||||||||||||||||||||||||||||||||||||||*/
 
-  /**
-   * @const @param size_x
-   * @const @param mode_x
-   */
-  #initEncode(size_x: uint, mode_x: Mode): void {
-    this.#encoder.configure(mode_x);
+  #initEncode(): void {
+    this.#encoder.configure(this.#mode);
     this.#encoder.setEncoderProperties();
-    for (let i = 0; i < 5; ++i) {
-      this.writeByte(this.#encoder.properties[i]);
-    }
+    if (this.#stal) {
+      for (const u8 of this.#encoder.properties) this.writeByte(u8);
 
-    const Len = BigInt(size_x);
-    for (let i = 0n; i < 48; i += 8n) {
-      this.writeByte(Number((Len >> i) & 0xFFn));
+      const sizebuf = Array.sparse<uint8>(8);
+      writeUint8m(this.#size, 8, sizebuf);
+      for (const u8 of sizebuf) this.writeByte(u8);
     }
-    for (let i = 2; i--;) this.writeByte(0);
 
     this.#encoder.Init();
     this.#encoder.inStream = this;
@@ -189,17 +202,17 @@ export class LzmaEncodeStream extends InStream {
     while (await this.#chunker.processChunkAsync());
   }
 
-  /**
-   * @const @param size_x
-   * @const @param mode_x
-   */
-  #compress(size_x: uint, mode_x: CompressionMode): this {
-    this.#initEncode(size_x, MODES[mode_x]);
+  #compress(): this {
+    this.#initEncode();
     this.#processAsync().then(() => {
-      // console.log(`%crun here: ${this._type_}.#processAsync().then()`, `color:orange`);
-      this.error.resolve(null);
-    }).catch(this.error.resolve)
+      // console.log(`%crun here: ${this._type_id_}.#processAsync().then()`, `color:orange`);
+      this.safeguard.resolve();
+    }).catch(this.safeguard.reject)
       .finally(() => {
+        // console.log(
+        //   `%crun here: ${this._type_id_}.#processAsync().finally()`,
+        //   `color:orange`,
+        // );
         this.#rsEnque = undefined;
         this.#rsClose();
         this.cleanup();
@@ -210,7 +223,7 @@ export class LzmaEncodeStream extends InStream {
   @traceOut(_TRACE)
   override cleanup() {
     /*#static*/ if (_TRACE) {
-      console.log(`${trace.indent}>>>>>>> ${this._type_}.cleanup() >>>>>>>`);
+      console.log(`${trace.indent}>>>>>>> ${this._type_id_}.cleanup() >>>>>>>`);
     }
     super.cleanup();
     if (this.#rsOfs > 0) {

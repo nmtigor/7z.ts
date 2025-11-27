@@ -3,8 +3,9 @@
  * @license MIT
  ******************************************************************************/
 
-import { _TRACE, INOUT } from "../../preNs.ts";
-import type { uint } from "../alias.ts";
+import { _TRACE, AUTOTEST, INOUT, PRF } from "../../preNs.ts";
+import type { uint, uint8 } from "../alias.ts";
+import { LOG_cssc } from "../alias.ts";
 import "../jslang.ts";
 import { assert } from "../util.ts";
 import type { DoublyLListNode } from "../util/LList.ts";
@@ -30,6 +31,17 @@ class OfsChunk_ {
   }
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
+  /** `in( this.strt <= ofs_x && ofs_x < this.stop)` */
+  readByte(ofs_x: uint): uint8 {
+    return this.chunk[ofs_x - this.strt];
+  }
+
+  /** `in( this.strt <= ofs_x && ofs_x < this.stop)` */
+  writeByte(ofs_x: uint, val_x: uint): void {
+    this.chunk[ofs_x - this.strt] = val_x & 0xFF;
+  }
+  /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
+
   /** For testing only */
   toString() {
     return `[${this.strt},${this.stop})`;
@@ -41,13 +53,14 @@ type Ran_ = {
   stop: uint;
 };
 
-/** no overlap, but may be discontinuous */
+/** No overlap, but may be discontinuous */
 export class StreamBufr extends DoublyLList<OfsChunk_> {
   /** @const */
   get size(): uint {
     return this.last$?.payload.stop ?? 0;
   }
 
+  /* cmd$ */
   /** current node */
   protected cnd$: DoublyLListNode<OfsChunk_> | undefined;
   /** `in( !this.empty)` */
@@ -55,6 +68,20 @@ export class StreamBufr extends DoublyLList<OfsChunk_> {
     this.cnd$ ??= this.frst$!;
     return this.cnd$;
   }
+
+  /** @const @param ofs_x */
+  protected setCnd$(ofs_x: uint): DoublyLListNode<OfsChunk_> {
+    let cnd = this.cnd;
+    if (ofs_x < cnd.payload.strt) {
+      for (; cnd.prev && ofs_x < cnd.prev.payload.strt; cnd = cnd.prev);
+      this.cnd$ = cnd.prev ?? cnd;
+    } else if (cnd.payload.stop < ofs_x) {
+      for (; cnd.next && cnd.next.payload.stop < ofs_x; cnd = cnd.next);
+      this.cnd$ = cnd.next ?? cnd;
+    }
+    return cnd;
+  }
+  /* ~ */
 
   /** Chunks before `#strt` can be deleted. */
   #strt: uint = 0;
@@ -68,11 +95,25 @@ export class StreamBufr extends DoublyLList<OfsChunk_> {
     if (nd_?.prev) {
       nd_ = nd_.prev;
       if (nd_.payload.stop > _x) nd_ = nd_.prev;
-      if (nd_) this.deleteRange$(undefined, nd_);
+      if (nd_) {
+        // /*#static*/ if (PRF || AUTOTEST) {
+        //   let nd_1: DoublyLListNode<OfsChunk_> | undefined = nd_;
+        //   let deld = 0;
+        //   do {
+        //     deld += nd_1.payload.chunk.length;
+        //     nd_1 = nd_1.prev;
+        //   } while (nd_1);
+        //   this._mem_ -= deld;
+        // }
+        this.deleteRange$(undefined, nd_);
+      }
     }
 
     this.#strt = _x;
   }
+
+  _mem_ = 0;
+  _maxMem_ = 0;
 
   /** `Ran_`s strictly after `#strt` */
   readonly #disuse_sa = new SortedArray<Ran_>((a, b) => a.strt < b.strt);
@@ -82,9 +123,27 @@ export class StreamBufr extends DoublyLList<OfsChunk_> {
    * @const @param u8a_x
    * @const @param strt_x absolute `>=size`
    */
+  @traceOut(_TRACE)
   add(u8a_x: Uint8Array, strt_x = this.size): void {
+    /*#static*/ if (_TRACE) {
+      console.log(
+        `${trace.indent}>>>>>>> ${this._type_id_}.add( , ${strt_x}) >>>>>>>`,
+      );
+      console.log(`${trace.dent}u8a_x.length: ${u8a_x.length}`);
+    }
     this.append$(new OfsChunk_(strt_x, u8a_x));
     // console.log(`%crun here: size: ${this.size}`, `color:yellow`);
+
+    // /*#static*/ if (PRF || AUTOTEST) {
+    //   this._mem_ += this.last$!.payload.chunk.length;
+    //   if (this._mem_ > this._maxMem_) {
+    //     this._maxMem_ = this._mem_;
+    //     console.log(
+    //       `%c${this._type_id_}: _maxMem_: ${this._maxMem_}`,
+    //       `color:${LOG_cssc.performance}`,
+    //     );
+    //   }
+    // }
   }
 
   /**
@@ -95,7 +154,7 @@ export class StreamBufr extends DoublyLList<OfsChunk_> {
   disuse(strt_x: uint, stop_x: uint): void {
     /*#static*/ if (_TRACE) {
       console.log(
-        `${trace.indent}>>>>>>> StreamBufr.disuse( ${strt_x}, ${stop_x}) >>>>>>>`,
+        `${trace.indent}>>>>>>> ${this._type_id_}.disuse( strt_x: ${strt_x}, stop_x: ${stop_x}) >>>>>>>`,
       );
     }
     if (stop_x <= this.#strt) return;
@@ -106,96 +165,48 @@ export class StreamBufr extends DoublyLList<OfsChunk_> {
     }
 
     let newStrt = stop_x;
-    let maxStop = 0;
-    let i_ = 0, j_ = -1;
+    let i_ = 0;
     for (const iI = this.#disuse_sa.length; i_ < iI; i_++) {
       const disuse_i = this.#disuse_sa[i_];
       if (newStrt < disuse_i.strt) break;
 
       newStrt = Math.max(disuse_i.stop, newStrt);
-
-      if (disuse_i.stop > maxStop) {
-        maxStop = disuse_i.stop;
-        j_ = i_;
-      } else if (disuse_i.stop === maxStop && j_ >= 0) {
-        const disuse_j = this.#disuse_sa[j_];
-        /* keep shorter one */ if (
-          disuse_i.stop - disuse_i.strt < disuse_j.stop - disuse_j.strt
-        ) {
-          maxStop = disuse_i.stop;
-          j_ = i_;
-        }
-      }
     }
-    if (maxStop < newStrt) {
-      this.#disuse_sa.copyWithin(0, i_);
-      this.#disuse_sa.length -= i_;
-    } else if (j_ >= 0) {
-      /*#static*/ if (INOUT) {
-        assert(maxStop === newStrt && j_ < i_);
-      }
-      if (this.#disuse_sa.at(i_)?.strt === newStrt) {
-        this.#disuse_sa.copyWithin(0, i_);
-        this.#disuse_sa.length -= i_;
-      } /* keep `#disuse_sa[j_]` */ else {
-        this.#disuse_sa[i_ - 1] = this.#disuse_sa[j_];
-        this.#disuse_sa.copyWithin(0, i_ - 1);
-        this.#disuse_sa.length -= i_ - 1;
-        newStrt = this.#disuse_sa[0].strt;
-        /*#static*/ if (INOUT) {
-          assert(this.#strt <= newStrt);
-        }
-      }
-    }
+    this.#disuse_sa.copyWithin(0, i_);
+    this.#disuse_sa.length -= i_;
 
     this._strt = newStrt;
   }
 
   /**
    * @const
-   * @const @param len_x
+   * @const @param size_x
    * @const @param strt_x
    * @return The amount not prepared
    */
-  prepare(len_x: uint, strt_x: uint): uint {
-    return Math.max(len_x - (this.size - strt_x), 0);
+  prepare(size_x: uint, strt_x: uint): uint {
+    return Math.max(size_x - (this.size - strt_x), 0);
   }
 
-  // /**
-  //  * @const @param ofs_x
-  //  * @throw {@linkcode ExceedSize}
-  //  */
-  // #peekByte(ofs_x: uint): uint8 {
-  //   let ret: uint8;
-  //   const cofs_0 = this.#cofs;
-  //   this.cofs = ofs_x;
-
-  //   const strt_ = this.caofs;
-  //   const stop_ = strt_ + 1;
-  //   const cnd = this.cnd;
-  //   if (strt_ < cnd.payload.stop) {
-  //     ret = cnd.payload.chunk[strt_ - cnd.payload.strt];
-  //   } else if (cnd.next) {
-  //     ret = cnd.next.payload.chunk[0];
-  //   } else {
-  //     throw new ExceedSize(`${stop_} > ${cnd.payload.stop}`);
-  //   }
-
-  //   this.cofs = cofs_0;
-  //   return ret;
-  // }
-
   /**
-   * @const @param len_x
+   * @const
+   * @const @param size_x
    * @const @param strt_x
    * @borrow @const @return
    * @throw {@linkcode ExceedSize}
    */
-  peek(len_x: uint, strt_x: uint): Uint8Array[] {
+  @traceOut(_TRACE)
+  peek(size_x: uint, strt_x: uint): Uint8Array[] {
+    /*#static*/ if (_TRACE) {
+      console.log(
+        `${trace.indent}>>>>>>> ${this._type_id_}.peek( size_x: ${size_x}, strt_x: ${strt_x}) >>>>>>>`,
+      );
+    }
     const ret: Uint8Array[] = [];
+    const cnd_0 = this.cnd$;
 
-    const stop_ = strt_x + len_x;
-    let cnd = this.cnd;
+    const stop_ = strt_x + size_x;
+    let cnd = this.setCnd$(strt_x);
     if (strt_x < cnd.payload.stop) {
       ret.push(
         cnd.payload.chunk.subarray(
@@ -213,9 +224,10 @@ export class StreamBufr extends DoublyLList<OfsChunk_> {
       );
     }
     if (stop_ > cnd.payload.stop) {
-      throw new ExceedSize(`${stop_} > ${cnd.payload.stop}`);
+      throw new ExceedSize(`stop_: ${stop_} > ${cnd.payload.stop}`);
     }
 
+    this.cnd$ = cnd_0;
     return ret;
   }
 }

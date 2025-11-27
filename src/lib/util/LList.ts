@@ -60,6 +60,20 @@ export class DoublyLList<T> extends LList<T> {
   protected last$: DoublyLListNode<T> | undefined;
   /*64||||||||||||||||||||||||||||||||||||||||||||||||||||||||||*/
 
+  /** @final */
+  [Symbol.iterator](): Iterator<T> {
+    let nd_ = this.frst$;
+    return {
+      next: () => {
+        if (!nd_) return { value: undefined, done: true };
+
+        const ret = { value: nd_.payload };
+        nd_ = nd_.next;
+        return ret;
+      },
+    };
+  }
+
   /**
    * `in( this.frst$ && this.last$)`
    * @headconst @param frst_x

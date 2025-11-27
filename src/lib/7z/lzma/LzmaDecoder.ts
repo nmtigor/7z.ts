@@ -6,6 +6,7 @@
  * @license MIT
  ******************************************************************************/
 
+import { LOG_cssc } from "@fe-lib/alias.ts";
 import type { uint, uint8 } from "@fe-lib/alias.ts";
 import "@fe-lib/jslang.ts";
 import { _TRACE } from "@fe-src/preNs.ts";
@@ -23,7 +24,6 @@ import {
   kStartPosModelIndex,
   LZMA_DIC_MIN,
   MATCH_DECODERS_SIZE,
-  MODES,
   POS_CODERS_SIZE,
 } from "./alias.ts";
 import type { ChunkState, ProbState3D } from "./ChunkState.ts";
@@ -187,12 +187,13 @@ export class LzmaDecoder {
     /* Calculate dictionary size from `props_x[1-4]` */
     let dictSize: CDist = 0;
     for (let i = 0; i < 4; i++) {
-      /* Treat bytes as unsigned (0-255) instead of signed (-128 to 127) */
-      const unsignedByte = props_x[1 + i] & 0xFF;
-      dictSize += unsignedByte << (i * 8);
+      const u8 = props_x[1 + i] & 0xFF;
+      dictSize += u8 << i * 8;
     }
+    // console.log({ dictSize });
 
     this.#dictSizeCheck = Math.max(dictSize, 1);
+    // console.log("#dictSizeCheck: ", this.#dictSizeCheck);
 
     this.OutWindow.Create(Math.max(dictSize, LZMA_DIC_MIN));
 
@@ -423,8 +424,8 @@ export class LzmaDecoder {
 
       if (this.#rep0 >= this.#nowPos48 || this.#rep0 >= this.#dictSizeCheck) {
         // console.log(
-        //   `%crun here: #rep0: ${this.#rep0}, #nowPos48: ${this.#nowPos48}`,
-        //   `color:red`,
+        //   `%crun here: #rep0: ${this.#rep0}, #nowPos48: ${this.#nowPos48}, #dictSizeCheck: ${this.#dictSizeCheck}`,
+        //   `color:${LOG_cssc.runhere}`,
         // );
         return DecodeChunkR.err;
       }

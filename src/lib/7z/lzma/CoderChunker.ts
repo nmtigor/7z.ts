@@ -98,11 +98,15 @@ export class DecoderChunker extends CoderChunker {
     //     `${trace.indent}>>>>>>> DecoderChunker.processChunk() >>>>>>>`,
     //   );
     // }
-    if (!this.alive$) throw new BadState();
+    if (!this.alive$) {
+      throw new BadState();
+    }
 
     this.#chunkstate.reset_ChunkState();
     const result = this.#decoder.codeOneChunk(this.#chunkstate);
-    if (result === DecodeChunkR.err) throw new CorruptedInput();
+    if (result === DecodeChunkR.err) {
+      throw new CorruptedInput();
+    }
 
     this.inBytesProcessed$ = this.#decoder.nowPos48;
 
@@ -133,10 +137,14 @@ export class DecoderChunker extends CoderChunker {
     //     `${trace.indent}>>>>>>> DecoderChunker.processChunkAsync() >>>>>>>`,
     //   );
     // }
-    if (!this.alive$) throw new BadState();
+    if (!this.alive$) {
+      throw new BadState();
+    }
 
     const result = await this.#decoder.codeOneChunkAsync();
-    if (result === DecodeChunkR.err) throw new CorruptedInput();
+    if (result === DecodeChunkR.err) {
+      throw new CorruptedInput();
+    }
 
     this.inBytesProcessed$ = this.#decoder.nowPos48;
 

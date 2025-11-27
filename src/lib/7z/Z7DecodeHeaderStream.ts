@@ -41,7 +41,7 @@ export class Z7DecodeHeaderStream extends Z7DecodeStream {
   async #processAsync(): Promise<void> {
     /*#static*/ if (_TRACE) {
       console.log(
-        `${trace.indent}>>>>>>> ${this._type_}.#processAsync() >>>>>>>`,
+        `${trace.indent}>>>>>>> ${this._type_id_}.#processAsync() >>>>>>>`,
       );
     }
     const bufr = this.bufr$;
@@ -58,8 +58,8 @@ export class Z7DecodeHeaderStream extends Z7DecodeStream {
 
   #parse(): void {
     this.#processAsync().then(() => {
-      this.error.resolve(null);
-    }).catch(this.error.resolve)
+      this.safeguard.resolve();
+    }).catch(this.safeguard.reject)
       .finally(() => {
         this.cleanup();
       });
