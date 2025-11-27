@@ -16,7 +16,7 @@ environment.
   - c (official 7z): archive 41s, extract 8s
 
   I.e., this program is about 5-7 times behind the official one.
-- This program is written in TS, and does not depend on any other libraries
+- This program is written in TS, and does not depend on any other libraries.
 
 Official 7z format specifies rich features. Some of them are planned to be
 implemented later based on my needs. Currently, following features are in

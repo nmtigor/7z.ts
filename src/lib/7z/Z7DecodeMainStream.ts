@@ -103,13 +103,17 @@ class LDSData_ {
         );
         for (const u8a of u8a_a) yield u8a;
 
-        yield* await this.#read(outStop_x);
+        //jjjj TOCLEANUP
+        // yield* await this.#read(outStop_x);
+        yield* this.#read(outStop_x);
       } else {
         const u8a_a = this.#outBufr.peek(outStop_x - outStrt_x, outStrt_x);
         for (const u8a of u8a_a) yield u8a;
       }
     } else {
-      yield* await this.#read(outStop_x, outStrt_x);
+      //jjjj TOCLEANUP
+      // yield* await this.#read(outStop_x, outStrt_x);
+      yield* this.#read(outStop_x, outStrt_x);
     }
     this.#outBufr.disuse(outStrt_x, outStop_x);
   }

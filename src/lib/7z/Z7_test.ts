@@ -95,12 +95,12 @@ describe("basics", () => {
     assertEquals(arcP_a_.length, 0);
   });
 
-  const rD_ = "x_lzma";
+  const RD_ = "x_lzma";
   /* deno test -RW */
-  it.skip(`Z7.extract() "${z7_}" to "gen/${rD_}/"`, async () => {
-    await Deno.mkdir(`${D_}/gen/${rD_}`, { recursive: true });
+  it.skip(`Z7.extract() "${z7_}" to "gen/${RD_}/"`, async () => {
+    await Deno.mkdir(`${D_}/gen/${RD_}`, { recursive: true });
     await Z7.extract(`file://${D_}/${z7_}`, async (xf) => {
-      const P_ = `${D_}/gen/${rD_}/${xf.arcPath}`;
+      const P_ = `${D_}/gen/${RD_}/${xf.arcPath}`;
       if (xf.isDir) {
         await Deno.mkdir(P_, { recursive: true });
       } else {
@@ -174,12 +174,12 @@ describe("archive/extract with no (de)compression", () => {
     assertEquals(arcP_a_.length, 0);
   });
 
-  const rD_ = "x_mt";
+  const RD_ = "x_mt";
   /* deno test -RW */
-  it.skip(`Z7.extract() "${z7_}" to "gen/${rD_}/"`, async () => {
-    await Deno.mkdir(`${D_}/gen/${rD_}`, { recursive: true });
+  it.skip(`Z7.extract() "${z7_}" to "gen/${RD_}/"`, async () => {
+    await Deno.mkdir(`${D_}/gen/${RD_}`, { recursive: true });
     await Z7.extract(`file://${D_}/${z7_}`, async (xf) => {
-      const P_ = `${D_}/gen/${rD_}/${xf.arcPath}`;
+      const P_ = `${D_}/gen/${RD_}/${xf.arcPath}`;
       if (xf.isDir) {
         await Deno.mkdir(P_, { recursive: true });
       } else {
